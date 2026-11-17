@@ -1,0 +1,213 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --ink: #080e15;
+  --paper: #fff1d2;
+  --gold: #ffc95a;
+  --gold-dark: #8e5c23;
+  --surface: #12212c;
+  --muted: #a9b5bc;
+  --red: #f27c70;
+  --teal: #75d5ce;
+}
+@layer base {
+  body { margin: 0; font-family: 'Noto Sans SC', system-ui, sans-serif; background: #0c151e; color: var(--paper); }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .45; }
+  button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 3px solid #ffe39b; outline-offset: 4px; }
+}
+.font-comic { font-family: 'ZCOOL KuaiLe', 'Noto Sans SC', sans-serif; }
+.court-app { min-height: 100dvh; background: radial-gradient(ellipse at 50% 12%, #23424a 0, #101e29 48%, #0c151e 85%); }
+.court-header { background: #101e29ee; border-bottom: 2px solid #060c13; position: relative; z-index: 30; }
+.court-header__inner { max-width: 1220px; margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 24px; }
+.court-brand { display: flex; align-items: center; gap: 11px; text-align: left; background: none; border: 0; color: var(--paper); }
+.court-brand__mark { width: 45px; height: 45px; display: grid; place-items: center; color: var(--ink); background: var(--gold); border: 2px solid var(--ink); border-radius: 12px; box-shadow: 3px 3px 0 #040a10; transform: rotate(-6deg); flex-shrink: 0; }
+.court-brand strong { display: block; font-size: 23px; font-family: 'ZCOOL KuaiLe', sans-serif; letter-spacing: 1px; color: var(--gold); }
+.court-brand small { display: block; margin-top: 4px; font-size: 11px; color: #b9c7cc; }
+.court-header__actions { display: flex; align-items: center; gap: 8px; }
+.court-button, .court-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1.5px solid #57646c; border-radius: 9px; padding: 9px 13px; min-height: 40px; background: #21313e; color: #e2e7e4; font-size: 12px; font-weight: 700; transition: background .15s, transform .15s; white-space: nowrap; }
+.court-button:hover:not(:disabled), .court-icon-button:hover:not(:disabled) { background: #344755; transform: translateY(-1px); }
+.court-button--primary { color: #231d15; background: var(--gold); border: 2px solid #080e15; box-shadow: 2px 3px 0 #060c13; }
+.court-button--primary:hover:not(:disabled) { background: #ffdc85; }
+.court-icon-button { width: 40px; padding: 8px; }
+.court-more { position: relative; }
+.court-more__menu { position: absolute; top: 48px; right: 0; width: 195px; background: #182d39; padding: 7px; border: 2px solid #080e15; border-radius: 12px; box-shadow: 5px 6px 0 #050b12b3; z-index: 50; }
+.court-more__menu button { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 12px 9px; font-size: 12px; border-radius: 6px; }
+.court-more__menu button:hover { background: #2a424e; color: var(--gold); }
+.court-main { max-width: 1160px; margin: auto; padding: 26px 24px 12px; }
+.court-notice, .court-room-status { display: flex; align-items: center; gap: 12px; background: #253d45; padding: 12px 16px; margin-bottom: 16px; border: 1px solid #577278; border-radius: 10px; font-size: 12px; }
+.court-notice span { flex: 1; }
+.court-notice button { font-size: 22px; }
+.court-room-status button { margin-left: auto; color: var(--gold); }
+.court-stage { border: 3px solid #060d13; border-radius: 20px; overflow: hidden; box-shadow: 8px 9px 0 #060e17; background: var(--surface); }
+.court-case-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 19px 25px 12px; background: #172c37; }
+.court-eyebrow { font-size: 10px; letter-spacing: 2px; font-weight: 800; color: var(--gold); }
+.court-case-strip h1 { margin: 5px 0 0; font-size: clamp(20px, 2.5vw, 28px); line-height: 1.4; font-family: 'ZCOOL KuaiLe', sans-serif; }
+.court-mode { flex-shrink: 0; border: 1px solid #708083; border-radius: 50px; padding: 5px 11px; color: #d1d8d6; font-size: 10px; font-weight: 700; }
+.court-mode--live { background: #1b514b; color: #bdf9df; border-color: #6ead92; }
+.court-case-brief { background: #172c37; padding: 0 25px 17px; font-size: 12px; color: #b7c7ca; }
+.court-case-brief > span { font-size: 10px; opacity: .8; }
+.court-case-brief p { margin: 7px 0 0; line-height: 1.7; max-width: 850px; }
+.court-appeal-note { background: #2e3b38; color: #f0dcaf; padding: 12px 25px; font-size: 12px; line-height: 1.7; }
+.court-phases { display: flex; justify-content: center; gap: 25px; padding: 13px 20px; border-top: 1px solid #3b535c; border-bottom: 2px solid #050d15; background: #0e202c; }
+.court-phases > span { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: #81979e; white-space: nowrap; }
+.court-phases i { display: grid; place-items: center; width: 19px; height: 19px; border: 1px solid #52707b; border-radius: 50%; font-style: normal; font-size: 9px; }
+.court-phases .is-current { color: var(--gold); font-weight: 800; }
+.court-phases .is-current i { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+.court-theatre { position: relative; padding: 17px 25px 0; background: linear-gradient(90deg, #102c37, #214350 50%, #102c37); }
+.court-theatre__sign { display: flex; align-items: center; justify-content: center; gap: 15px; color: #f4d499; font-family: 'ZCOOL KuaiLe', sans-serif; font-size: 17px; letter-spacing: 3px; padding-bottom: 12px; opacity: .9; }
+.court-actors { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: end; gap: 24px; max-width: 860px; margin: auto; padding-top: 7px; }
+.court-actor { position: relative; min-width: 0; }
+.court-actor--judge { align-self: center; transform: translateY(-9px); }
+.court-actor__cue { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 10px; color: #c3d1d2; height: 22px; margin-bottom: 3px; }
+.court-actor.is-speaking .court-actor__cue { color: var(--gold); font-weight: 800; }
+.character-portrait { width: 100%; max-width: 245px; margin: auto; filter: drop-shadow(3px 5px 0 #050c16a6); }
+.court-actor .character-portrait { margin-bottom: -5px; transition: transform .18s; transform-origin: bottom center; }
+.court-actor.is-speaking .character-portrait { transform: scale(1.04); }
+.character-portrait--unavailable { display: grid; place-items: center; border: 1px dashed #8b999b; min-height: 100px; padding: 15px; }
+.character-portrait__fallback { text-align: center; font-size: 12px; }
+.character-portrait__fallback small { display: block; color: var(--muted); margin-top: 6px; }
+.court-actor__bench { position: relative; z-index: 1; min-height: 62px; padding: 9px 10px 11px; text-align: center; border: 2px solid #090d12; border-top: 5px solid #c2a16b; border-radius: 5px 5px 0 0; background: #5c4539; box-shadow: 0 4px 0 #080e15; }
+.court-actor__bench > span { display: block; margin: 0 auto 5px; font-size: 10px; color: #f3d9ae; letter-spacing: 2px; }
+.court-actor__bench strong { font-size: 12px; font-weight: 800; overflow-wrap: anywhere; line-height: 1.5; display: block; }
+.court-actor--plaintiff .court-actor__bench { border-top-color: #f48a7a; }
+.court-actor--defendant .court-actor__bench { border-top-color: #73d6cd; }
+.court-actor--judge .court-actor__bench { background: #665137; border-top-color: #e9c266; }
+.court-dialogue { position: relative; z-index: 2; border: 3px solid #080e15; border-radius: 12px; background: #fff0d1; color: #26313a; padding: 15px 20px; box-shadow: 4px 5px 0 #080e1599; min-height: 174px; margin: -1px 0 0; }
+.court-dialogue__heading { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #c6b78f; }
+.court-dialogue__heading > span { color: #7b4a26; font-size: 12px; font-weight: 900; }
+.court-dialogue[data-speaker="plaintiff"] .court-dialogue__heading > span { color: #9d3c32; }
+.court-dialogue[data-speaker="defendant"] .court-dialogue__heading > span { color: #156961; }
+.court-dialogue__heading small { font-size: 10px; color: #726b5c; flex-shrink: 0; }
+.court-dialogue__text { width: 100%; min-height: 80px; text-align: left; padding: 12px 0 0; font-size: 16px; line-height: 1.85; color: #273137; font-weight: 600; }
+.court-dialogue__welcome h2 { margin: 14px 0 7px; font-family: 'ZCOOL KuaiLe', sans-serif; font-size: 23px; }
+.court-dialogue__welcome p { margin: 5px 0; font-size: 13px; line-height: 1.7; color: #554f45; }
+.court-dialogue__welcome .court-source-note { font-size: 11px; color: #7a705d; }
+.type-cursor { display: inline-block; width: 7px; height: 16px; background: #9b643a; vertical-align: -2px; margin-left: 4px; animation: cursorBlink 1s step-end infinite; }
+.court-presented-evidence { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; font-size: 11px; border-top: 1px dashed #c5b18b; padding-top: 10px; margin-top: 10px; color: #6d5635; }
+.court-presented-evidence button { text-decoration: underline; text-underline-offset: 3px; }
+.court-response-note { margin-top: 7px; color: #8d7c62; font-size: 10px; }
+.court-controls { padding: 17px 25px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: #17323e; }
+.court-controls__playback, .court-controls__tools { display: flex; align-items: center; gap: 7px; }
+.court-turn-count { color: #a8bec4; font-size: 10px; margin-left: 5px; white-space: nowrap; }
+.court-controls__tools .court-button { padding: 8px 10px; font-size: 11px; }
+.court-jury-call { display: flex; gap: 13px; align-items: center; flex-wrap: wrap; padding: 17px 25px; background: #334334; border-top: 1px solid #778265; color: #fff0c2; }
+.court-jury-call > div { flex: 1; min-width: 150px; }
+.court-jury-call strong { font-size: 14px; }
+.court-jury-call p { font-size: 12px; line-height: 1.7; }
+.court-stage-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 25px; font-size: 10px; color: #90a6ae; background: #10252f; }
+.court-stage-footer button { color: #f0cf8a; text-decoration: underline; text-underline-offset: 3px; }
+.court-runtime-error { margin: 15px 25px; border: 1px solid #dd8775; padding: 15px; border-radius: 10px; background: #502f2f; font-size: 12px; }
+.court-runtime-error p { margin: 8px 0 13px; line-height: 1.7; }
+.court-runtime-error button + button { margin-left: 8px; }
+.court-inline-note { color: #b3c4c8; font-size: 12px; line-height: 1.8; margin: 12px 0; }
+.court-stage > .court-inline-note { padding: 0 25px; }
+.court-transcript { padding: 15px 25px; border-top: 1px solid #3d5864; max-height: 420px; overflow: auto; background: #112530; }
+.court-transcript li + li { margin-top: 10px; }
+.court-transcript button { width: 100%; text-align: left; padding: 10px 14px; border: 1px solid #3a515d; border-radius: 8px; }
+.court-transcript span { color: var(--gold); font-size: 10px; }
+.court-transcript p { font-size: 12px; line-height: 1.85; margin-top: 6px; }
+.court-play-rule { display: flex; align-items: center; gap: 12px; padding: 24px 8px 13px; color: #9fb4bb; font-size: 11px; line-height: 1.8; }
+.court-play-rule p { flex: 1; }
+.court-play-rule strong { color: #cbd5d4; font-weight: 500; }
+.court-play-rule button { color: var(--gold); flex-shrink: 0; padding: 8px; }
+.court-footer { max-width: 1160px; margin: auto; display: flex; justify-content: space-between; gap: 15px; padding: 14px 30px 28px; color: #6f8791; font-size: 10px; }
+
+
+/* Modal & Dialogs */
+.court-modal {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  max-width: 90vw;
+  width: 100%;
+}
+.court-modal::backdrop {
+  background: rgba(4, 10, 16, 0.85);
+  backdrop-filter: blur(6px);
+}
+.court-modal__content {
+  background: #11202b;
+  color: var(--paper);
+  border: 2px solid #233945;
+  border-radius: 18px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  max-width: 760px;
+  margin: auto;
+  overflow: hidden;
+}
+.court-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 24px;
+  border-bottom: 1px solid #243b48;
+  background: #172c38;
+}
+.court-modal__header h2 {
+  margin: 0;
+  font-family: 'ZCOOL KuaiLe', sans-serif;
+  font-size: 20px;
+  color: var(--gold);
+}
+.court-modal__header p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.court-modal__close {
+  background: none;
+  border: 0;
+  color: #92a4ab;
+  padding: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.court-modal__close:hover {
+  color: #fff;
+  background: #253d4c;
+}
+
+/* Lobby */
+.court-lobby { padding: 20px; }
+.court-lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.court-lobby-eyebrow { font-size: 10px; color: var(--gold); letter-spacing: 2px; font-weight: 800; margin: 0; }
+.court-lobby-header h2 { margin: 4px 0; font-family: 'ZCOOL KuaiLe', sans-serif; font-size: 24px; }
+.court-lobby-header p { margin: 0; font-size: 12px; color: var(--muted); }
+.court-lobby-refresh { padding: 8px 14px; background: #213340; border: 1px solid #3c5260; color: #fff; border-radius: 8px; font-size: 12px; font-weight: bold; }
+.court-lobby-refresh:hover { background: #2f4757; }
+.court-lobby-games { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.court-lobby-card { background: #162833; border: 1.5px solid #2a414f; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; }
+.court-lobby-card h3 { margin: 6px 0; font-size: 16px; font-family: 'ZCOOL KuaiLe', sans-serif; color: var(--gold); }
+.court-lobby-status { font-size: 10px; padding: 2px 8px; border-radius: 20px; background: #223c4a; color: var(--teal); font-weight: bold; }
+.court-lobby-parties { font-size: 12px; color: #b7c7ca; margin: 4px 0; display: flex; gap: 8px; align-items: center; }
+.court-lobby-seats { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 11px; }
+.court-lobby-seats li { display: flex; justify-content: space-between; align-items: center; background: #0e1b23; padding: 6px 10px; border-radius: 6px; }
+.court-lobby-join { padding: 3px 8px; background: var(--gold); color: #080e15; border: 0; border-radius: 5px; font-size: 10px; font-weight: bold; }
+.court-lobby-watch { width: 100%; padding: 8px; background: #273d4b; border: 1px solid #3d596a; color: #fff; border-radius: 8px; font-size: 12px; font-weight: bold; margin-top: 8px; }
+.court-lobby-aside { background: #182e3b; border-radius: 12px; padding: 16px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.court-lobby-aside h3 { margin: 0 0 8px; font-size: 14px; color: var(--gold); }
+
+/* Evidence Viewer */
+.evidence-viewer { padding: 16px 24px; }
+.evidence-list { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.evidence-list button { padding: 6px 12px; background: #182d38; border: 1px solid #2f4857; border-radius: 8px; color: var(--paper); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.evidence-list button[aria-pressed="true"] { background: #2d4c5e; border-color: var(--gold); color: var(--gold); font-weight: bold; }
+.evidence-detail { background: #182d38; border: 1px solid #2f4857; border-radius: 12px; padding: 16px; }
+.evidence-detail h3 { margin: 6px 0; font-size: 16px; color: var(--gold); }
+.evidence-detail p { font-size: 12px; line-height: 1.7; color: var(--muted); }
+
+/* Cast & Agent Setup */
+.court-cast-grid, .agent-role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; padding: 16px 24px; }
+.court-cast-card, .agent-role-card { background: #172c38; border: 1.5px solid #284453; border-radius: 12px; padding: 14px; cursor: pointer; text-align: left; }
+.court-cast-card.is-selected, .agent-role-card.is-selected { border-color: var(--gold); background: #233f50; box-shadow: 0 0 10px rgba(255, 201, 90, 0.2); }
+.agent-mode-options { border: 1px solid #284453; border-radius: 10px; padding: 12px 16px; margin: 16px 24px 0; display: flex; gap: 16px; }
+.agent-mode-options label { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.agent-join-content { padding: 16px 24px 24px; }
+.agent-join-intro { font-size: 12px; color: var(--muted); margin: 0 0 14px; }
