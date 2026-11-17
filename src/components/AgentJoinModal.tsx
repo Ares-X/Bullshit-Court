@@ -1,21 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import type { CourtRole } from '../types';
-import type { PublicGame } from '../types/platform';
+import type { GameInvitation, PublicGame } from '../types/platform';
 import { AGENT_GUIDE_PATH, AGENT_ROLE_LABELS, buildAgentInvite, getAgentRolePath } from '../utils/agentInvite';
 import { Modal } from './Modal';
+import { COURT_CASTS } from '../data/courtCasts';
+import { CharacterPortrait } from './CharacterPortrait';
 
 interface AgentJoinModalProps {
   isOpen: boolean;
   onClose: () => void;
   caseTitle: string;
   game?: PublicGame;
-  invitation?: { role: CourtRole; ticket: string; path: string };
+  invitation?: GameInvitation;
+  ownInvitations?: Partial<Record<CourtRole, GameInvitation>>;
   creating?: boolean;
   error?: string;
   onCreate: (role: CourtRole, mode: 'practice' | 'multiplayer') => void;
   onInvite: (role: CourtRole) => void;
   onWatch?: () => void;
+  currentCastId?: string;
+  onChooseCast?: (id: string) => void;
+  onRelay?: () => void;
 }
 const roles: CourtRole[] = ['plaintiff', 'defendant', 'judge'];
 const roleDescriptions: Record<CourtRole, string> = {
@@ -25,9 +31,9 @@ const roleDescriptions: Record<CourtRole, string> = {
 };
 const seatLabels = { open: '空席，等你摇人', reserved: '邀请已生成，等待入场', practice: '系统陪练', claimed: 'Agent 已入场' };
 
-export function AgentJoinModal({ isOpen, onClose, caseTitle, game, invitation, creating = false, error, onCreate, onInvite, onWatch }: AgentJoinModalProps) {
+export function AgentJoinModal({ isOpen, onClose, caseTitle, game, invitation, ownInvitations, creating = false, error, onCreate, onInvite, onWatch, currentCastId, onChooseCast, onRelay }: AgentJoinModalProps) {
   const [role, setRole] = useState<CourtRole>('plaintiff');
-  const [mode, setMode] = useState<'practice' | 'multiplayer'>('practice');
+  const [mode, setMode] = useState<'practice' | 'multiplayer'>('multiplayer');
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -45,8 +51,9 @@ export function AgentJoinModal({ isOpen, onClose, caseTitle, game, invitation, c
   };
   return <Modal isOpen={isOpen} onClose={onClose} title="派 Agent 出庭" description={caseTitle} className="agent-join-modal">
     <div className="agent-join-content">
-      <p className="agent-join-intro">AI 律师负责据理力争，全场生杀大权由你一票决定！</p>
+      <p className="agent-join-intro">三个 Agent 吵到冒烟，真人陪审只投一票。</p>
       {!game && <>
+        {onChooseCast && <fieldset className="agent-judge-options"><legend>请哪位法官镇场</legend><div className="agent-role-grid">{COURT_CASTS.map(cast => <button type="button" className={'agent-judge-card' + (currentCastId === cast.id ? ' is-selected' : '')} key={cast.id} aria-pressed={currentCastId === cast.id} onClick={() => onChooseCast(cast.id)}><CharacterPortrait cast={cast} role="judge" expression="confident" /><strong>{cast.judgeName}</strong><span>{cast.name}</span></button>)}</div></fieldset>}
         <fieldset className="agent-mode-options">
           <legend>怎么开庭</legend>
           <label className={mode === 'practice' ? 'is-selected' : ''}><input type="radio" name="court-mode" checked={mode === 'practice'} onChange={() => setMode('practice')} />我的 Agent + 两位系统陪练</label>
@@ -68,7 +75,7 @@ export function AgentJoinModal({ isOpen, onClose, caseTitle, game, invitation, c
           return <article className="agent-role-card" key={item}>
             <strong>{AGENT_ROLE_LABELS[item]}</strong><span>{seatLabels[seat.status]}</span>
             {seat.agentName && <span className="agent-seat-name">{seat.agentName}</span>}
-            {canInvite && <button type="button" className="agent-join-secondary" disabled={creating} onClick={() => onInvite(item)}>生成此席入场邀请</button>}
+            {(canInvite || (seat.status === 'claimed' && ownInvitations?.[item])) && <button type="button" className="agent-join-secondary" disabled={creating} onClick={() => onInvite(item)}>{ownInvitations?.[item] ? '查看此席邀请 / 接力' : '生成此席入场邀请'}</button>}
           </article>;
         })}</div>
         {onWatch && <button type="button" className="agent-join-secondary" onClick={onWatch}>去旁听这场庭审</button>}
@@ -80,6 +87,7 @@ export function AgentJoinModal({ isOpen, onClose, caseTitle, game, invitation, c
         <textarea id="agent-invite-text" className="agent-invite-text" ref={textRef} readOnly value={inviteText} rows={3} onFocus={event => event.currentTarget.select()} />
         <button type="button" className="agent-join-primary" onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? '已复制邀请' : '复制邀请'}</button>
         {copyFailed && <p role="status">未能写入剪贴板，已选中邀请；请手动复制。</p>}</>}
+        {onRelay && <details className="agent-relay-choice"><summary>我的聊天 Agent 只能读网页</summary><p>让它读取同一邀请，再把它返回的结构化回执递交到这里。你只负责搬运，台词仍由 Agent 写。</p><button type="button" className="agent-join-secondary" onClick={onRelay}>打开网页接力席</button></details>}
       </section>}
       {(error || inviteError) && <p className="agent-join-error" role="alert">{error || inviteError}</p>}
       <details className="agent-rules-links"><summary>Agent 去哪里读出庭规则？</summary><p>入场后由 Agent 自己读取固定规则，玩家只需发上面那一句。</p><nav aria-label="Agent 规则"><a href={AGENT_GUIDE_PATH} target="_blank" rel="noreferrer">出庭总规程</a>{roles.map(item => <a key={item} href={getAgentRolePath(item)} target="_blank" rel="noreferrer">{AGENT_ROLE_LABELS[item]}提示词</a>)}</nav></details>

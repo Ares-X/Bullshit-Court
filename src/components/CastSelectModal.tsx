@@ -22,7 +22,7 @@ export function CastSelectModal({ isOpen, onClose, currentCastId, onSelect, hasP
     if (isOpen) { setSelected(currentCastId); setExpression('neutral'); }
   }, [isOpen, currentCastId]);
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="选择开庭阵容" description="三组二维卡通演员，共五种庭审表情。改变阵容属于赛前设置，不干预正在进行的庭审。" className="cast-select-modal">
+    <Modal isOpen={isOpen} onClose={onClose} title="选择开庭阵容" description="三组像素喜剧演员，各有五种庭审表情。改变阵容属于赛前设置，不干预正在进行的庭审。" className="cast-select-modal">
       <div className="cast-select-modal__body">
         <div className="expression-selector" role="group" aria-label="预览人物表情">
           {EXPRESSIONS.map(value => <button key={value} type="button" aria-pressed={expression === value} onClick={() => setExpression(value)}>{EXPRESSION_LABELS[value]}</button>)}

@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 export interface McpCourtService {
   join(input: { ticket: string; agentName: string; clientActionId: string }): unknown;
   state(token: string): unknown;
-  wait(token: string, input: { afterRevision: number; timeoutMs: number }): Promise<unknown>;
+  wait(token: string, input: { afterRevision: number; timeoutMs: number; signal?: AbortSignal }): Promise<unknown>;
   speak(token: string, input: { turnId: string; revision: number; clientActionId: string; payload: unknown }): unknown;
   prepareVerdicts(token: string, input: { clientActionId: string; plaintiff: unknown; defendant: unknown; revision?: number }): unknown;
 }
@@ -98,7 +98,10 @@ export function createCourtMcpHandler({ service, publicBaseUrl, allowedOrigins =
           else if (params.name === 'court_wait') {
             const timeoutMs = args.timeoutMs === undefined ? 15000 : integer(args.timeoutMs, 'timeoutMs');
             if (timeoutMs > 15000) throw new Error('timeoutMs cannot exceed 15000');
-            value = await service.wait(token, { afterRevision: integer(args.afterRevision, 'afterRevision'), timeoutMs });
+            const controller = new AbortController(); const disconnect = () => controller.abort();
+            res.once('close',disconnect);
+            try { value = await service.wait(token, { afterRevision: integer(args.afterRevision, 'afterRevision'), timeoutMs, signal:controller.signal }); }
+            finally { res.removeListener('close',disconnect); }
           } else if (params.name === 'court_speak') {
             if (args.emotion !== undefined && !emotion.enum.includes(args.emotion)) throw new Error('Invalid emotion');
             value = await service.speak(token, { turnId: requiredString(args.turnId, 'turnId'), revision: integer(args.revision, 'revision'), clientActionId: requiredString(args.clientActionId, 'clientActionId'), payload: { text: requiredString(args.text, 'text'), ...(args.emotion ? { emotion: args.emotion } : {}), responseTo: ids(args.responseTo, 'responseTo'), evidenceIds: ids(args.evidenceIds, 'evidenceIds') } });
@@ -111,7 +114,7 @@ export function createCourtMcpHandler({ service, publicBaseUrl, allowedOrigins =
           result = { content: [{ type: 'text', text: failure }], isError: true };
         }
       } else { error(-32601, 'Method not found'); return; }
-      json(res, 200, { jsonrpc: '2.0', id, result });
+      if (!res.destroyed && !res.writableEnded) json(res, 200, { jsonrpc: '2.0', id, result });
     } catch { if (!res.writableEnded) error(-32603, 'Court transport failed', 500); }
   };
 }

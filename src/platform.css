@@ -1,0 +1,233 @@
+/* Platform surfaces: night arcade, squared edges and high contrast controls. */
+.platform-home { --platform-ink: #f4ead0; --platform-muted: #c2bac9; --platform-bg: #171320; --platform-panel: #221c2b; --platform-line: #625267; --platform-yellow: #f6d85c; --platform-red: #ef695e; --platform-cyan: #7be1d2; max-width: 1280px; margin: auto; padding: 36px 32px 0; color: var(--platform-ink); font-family: 'Courier New', 'PingFang SC', monospace; }
+.platform-home button, .platform-home a, .agent-join-modal button, .platform-jury-modal button, .agent-relay-modal button, .judgment-library-modal button { -webkit-tap-highlight-color: transparent; }
+.platform-home button:focus-visible, .platform-home a:focus-visible, .agent-join-modal :focus-visible, .platform-jury-modal :focus-visible, .agent-relay-modal :focus-visible, .judgment-library-modal :focus-visible { outline: 3px solid #7be1d2; outline-offset: 5px; }
+.platform-hero { display: grid; grid-template-columns: 1fr 1.12fr; align-items: center; gap: 28px; padding: 28px 0 46px; }
+.platform-kicker { margin: 0 0 14px; color: #f6d85c; font-size: 12px; font-weight: 800; letter-spacing: .1em; }
+.platform-hero h1 { margin: 0; font-size: clamp(32px, 4.1vw, 58px); font-weight: 950; line-height: 1.22; letter-spacing: -.04em; }
+.platform-hero h1 em { color: #f6d85c; font-style: normal; }
+.platform-hero-intro { color: #d4cbd6; line-height: 1.9; font-size: 14px; margin: 22px 0; }
+.platform-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.platform-button { display: inline-flex; justify-content: center; align-items: center; gap: 16px; border: 2px solid #a294a4; padding: 12px 17px; min-height: 46px; background: #29222f; color: #fff5df; box-shadow: 3px 3px 0 #09070e; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; text-decoration: none; }
+.platform-button:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 #09070e; background: #3a3041; }
+.platform-button--primary { color: #241a22; background: #f6d85c; border-color: #ffea98; }
+.platform-button--primary:hover:not(:disabled) { background: #ffe580; }
+.platform-button--cyan { border-color: #7be1d2; color: #7be1d2; }
+.platform-button:disabled { opacity: .55; cursor: default; }
+.platform-hero-note { color: #aaa2b5; font-size: 11px; line-height: 1.8; margin-top: 20px; max-width: 420px; }
+.platform-pixel-court { min-width: 0; align-self: stretch; position: relative; display: flex; flex-direction: column; justify-content: flex-end; border: 3px solid #655267; box-shadow: 7px 7px 0 #0c0911; background: repeating-linear-gradient(0deg, #221e30 0px, #221e30 3px, #251f33 3px, #251f33 6px); padding: 26px 14px 0; min-height: 345px; overflow: hidden; }
+.platform-court-sign { align-self: center; padding: 6px 11px; color: #f6d85c; border: 2px solid #f6d85c; font-size: 10px; font-weight: 900; letter-spacing: .14em; box-shadow: 3px 3px 0 #100d18; }
+.platform-hero-cast { display: flex; align-items: flex-end; gap: 6px; margin-top: 28px; }
+.platform-hero-character { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; position: relative; }
+.platform-hero-character--judge { align-self: flex-start; transform: translateY(-12px); }
+.platform-hero-character .character-portrait { width: 100%; max-width: 190px; image-rendering: pixelated; }
+.platform-hero-character strong { position: relative; z-index: 1; text-align: center; background: #3d2a2d; border: 2px solid #b28063; font-size: 11px; padding: 6px 9px; margin-top: -15px; color: #f6d6a1; }
+.platform-speech { color: #211925; padding: 6px 7px; background: #ece1bf; border: 2px solid #0e0a15; box-shadow: 2px 2px 0 #0e0a15; font-size: clamp(8px, .85vw, 11px); font-weight: 900; white-space: nowrap; }
+.platform-hero-character--plaintiff .platform-speech { background: #ef8a78; }
+.platform-hero-character--defendant .platform-speech { background: #7be1d2; }
+.platform-court-desk { position: relative; margin: 0 -14px; padding: 17px 14px; border-top: 5px solid #a4785e; background: #503731; color: #eed4ae; text-align: center; font-size: 12px; letter-spacing: .12em; }
+.platform-court-desk span { display: block; font-size: 10px; color: #f6d85c; margin-top: 7px; letter-spacing: .25em; }
+.platform-how { display: grid; grid-template-columns: repeat(3, 1fr); border-block: 2px solid #59465f; gap: 24px; padding: 22px 0; }
+.platform-how p { display: flex; align-items: center; gap: 14px; margin: 0; }
+.platform-how b { font-size: 28px; color: #ef695e; }
+.platform-how span { color: #bcb3c4; font-size: 11px; line-height: 1.9; }
+.platform-how strong { display: block; color: #f4ead0; font-size: 14px; }
+.platform-section { padding-block: 38px; scroll-margin-top: 24px; }
+.platform-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
+.platform-section-heading h2 { font-size: 23px; font-weight: 900; margin: 0; line-height: 1.4; }
+.platform-section-heading .platform-kicker { margin-bottom: 9px; }
+.platform-text-button { display: inline-flex; background: none; border: none; color: #7be1d2; font: inherit; font-size: 12px; font-weight: 700; padding: 8px 0; cursor: pointer; text-decoration: none; flex-shrink: 0; }
+.platform-text-button:hover { color: #b8fff1; text-decoration: underline; text-underline-offset: 4px; }
+.platform-case-picker { display: grid; grid-template-columns: 1fr 1fr; border: 2px solid #625267; box-shadow: 5px 5px 0 #0c0911; }
+.platform-case-options { display: flex; flex-direction: column; background: #1d1826; }
+.platform-case-options button { flex: 1; color: #cfc4d3; border: 0; border-bottom: 1px solid #463a50; background: none; font: inherit; font-size: 12px; padding: 16px; text-align: left; cursor: pointer; line-height: 1.6; }
+.platform-case-options button:last-child { border-bottom: 0; }
+.platform-case-options button span { font-size: 10px; color: #8f839c; margin-right: 14px; }
+.platform-case-options button[aria-pressed=true] { color: #f6d85c; background: #322735; box-shadow: inset 4px 0 #f6d85c; }
+.platform-case-preview { padding: 26px; border-left: 2px solid #625267; background: #29212f; }
+.platform-case-preview h3 { font-size: 22px; font-weight: 900; margin: 18px 0; line-height: 1.5; }
+.platform-case-preview p { color: #c2b6c9; font-size: 12px; line-height: 1.9; }
+.platform-case-clash { border-left: 3px solid #ef695e; padding-left: 12px; color: #f3d5bc; font-size: 12px; line-height: 1.8; margin-block: 20px; }
+.platform-tag { display: inline-flex; padding: 4px 7px; border: 1px solid #75617b; background: #302634; color: #f6d85c; font-size: 10px; line-height: 1.5; }
+.platform-live { border-block: 2px solid #59465f; }
+.platform-live-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; gap: 12px; }
+.platform-tabs { display: flex; gap: 18px; }
+.platform-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 8px 0 12px; background: none; color: #9d91aa; font: inherit; font-size: 16px; font-weight: 900; cursor: pointer; }
+.platform-tabs button[aria-pressed=true] { color: #f6d85c; border-color: #f6d85c; }
+.platform-tabs button span { font-size: 11px; background: #362a3c; padding: 3px 6px; margin-left: 5px; }
+.platform-live-note { color: #b0a4b9; font-size: 10px; }
+.platform-empty-action { padding: 0 20px 24px; text-align: center; border: 2px dashed #56445f; border-top: 0; margin-top: -2px; background: #201a29; }
+.platform-empty-action p { color: #bdb1c9; font-size: 12px; margin: 0 0 20px; }
+.platform-recent-judgments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.platform-judgment-card { display: flex; flex-direction: column; min-width: 0; border: 2px solid #625267; background: #241d2d; padding: 20px; box-shadow: 4px 4px 0 #0c0911; color: #eee1ce; }
+.platform-judgment-card h3 { font-size: 16px; font-weight: 900; margin: 15px 0 12px; line-height: 1.6; }
+.platform-judgment-card > .platform-tag { align-self: flex-start; }
+.platform-judgment-card blockquote { font-size: 12px; line-height: 1.9; color: #d7c6dc; border-left: 3px solid #f6d85c; padding-left: 13px; margin: 5px 0 18px; overflow-wrap: anywhere; }
+.platform-judgment-card > .platform-text-button { margin-top: auto; align-self: flex-start; }
+.platform-archive-empty { grid-column: 1/-1; display: flex; align-items: center; gap: 22px; padding: 28px; border: 2px dashed #625267; background: #201a29; }
+.platform-archive-empty > span { font-size: 48px; color: #a68baf; }
+.platform-archive-empty h3 { margin: 0 0 12px; font-size: 17px; }
+.platform-archive-empty p { margin: 0; color: #beb1c7; line-height: 1.8; font-size: 12px; }
+.platform-archive-empty .platform-text-button { margin-left: auto; }
+.platform-home-footer { border-top: 2px solid #59465f; padding: 26px 0 32px; display: flex; justify-content: space-between; gap: 14px; color: #aa9bb6; font-size: 11px; line-height: 1.8; }
+.platform-home-footer strong { color: #d8c7dc; font-weight: 700; }
+/* Existing platform components share the same square controls. */
+.court-lobby { color: #ede2ce; }
+.court-lobby-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 20px; }
+.court-lobby-header h2 { font-size: 23px; font-weight: 900; margin: 0 0 10px; }
+.court-lobby-header p { color: #beb1ca; font-size: 12px; line-height: 1.8; }
+.court-lobby-eyebrow { color: #f6d85c !important; font-size: 11px !important; margin: 0 0 8px; }
+.court-lobby-refresh, .court-lobby-watch, .court-lobby-join, .agent-join-primary, .agent-join-secondary { display: inline-flex; justify-content: center; align-items: center; gap: 8px; font: inherit; font-size: 12px; font-weight: 700; border: 2px solid #806b86; background: #302637; color: #f3e6d0; padding: 10px 13px; cursor: pointer; min-height: 42px; }
+.court-lobby-refresh { flex-shrink: 0; }
+.court-lobby-watch, .agent-join-primary { background: #f6d85c; border-color: #ffe58d; color: #251b23; }
+.court-lobby-join { font-size: 10px; padding: 8px; color: #7be1d2; border-color: #659e98; }
+.court-lobby button:disabled, .agent-join-modal button:disabled { opacity: .5; cursor: default; }
+.court-lobby-layout { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 20px; }
+.court-lobby-games { display: grid; gap: 15px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.court-lobby-card { display: flex; flex-direction: column; padding: 19px; border: 2px solid #625267; background: #231c2b; min-width: 0; }
+.court-lobby-card-heading h3 { font-size: 17px; font-weight: 800; line-height: 1.5; margin: 12px 0; }
+.court-lobby-status { font-size: 10px; color: #f6d85c; border: 1px solid #786443; background: #382e2c; padding: 4px 7px; }
+.court-lobby-status--running { color: #7be1d2; border-color: #4c8a83; background: #1d3433; }
+.court-lobby-status--waiting-jury { color: #ffb2a5; border-color: #a56066; background: #40252f; }
+.court-lobby-parties { display: flex; gap: 9px; flex-wrap: wrap; color: #c7b5ce; font-size: 11px; line-height: 1.6; }
+.court-lobby-parties span:nth-child(2) { color: #ef695e; }
+.court-lobby-seats { list-style: none; padding: 0; margin: 14px 0 20px; }
+.court-lobby-seats li { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #493a51; padding: 10px 0; }
+.court-lobby-seats li div { display: flex; flex-direction: column; gap: 5px; }
+.court-lobby-seats strong { color: #e5d5e9; font-size: 11px; }
+.court-lobby-seats li span { color: #b4a6be; font-size: 10px; overflow-wrap: anywhere; }
+.court-lobby-watch { width: 100%; margin-top: auto; }
+.court-lobby-aside { border: 2px solid #605069; background: #2d2334; padding: 22px 18px; align-self: start; }
+.court-lobby-aside h3 { color: #f6d85c; font-size: 14px; margin: 0 0 18px; }
+.court-lobby-aside p { color: #c3b4ca; font-size: 12px; line-height: 2; margin: 14px 0; }
+.court-lobby-empty { grid-column: 1/-1; border: 2px dashed #56445f; background: #201a29; text-align: center; padding: 35px 20px; }
+.court-lobby-empty h3 { font-size: 18px; margin: 0 0 12px; }
+.court-lobby-empty p, .court-lobby-error { font-size: 12px; color: #c7b6ce; line-height: 1.8; }
+.agent-join-modal, .platform-jury-modal, .agent-relay-modal, .judgment-library-modal { color: #eee1ce; border-color: #78617b; background: #201926; border-radius: 0 !important; font-family: 'Courier New', 'PingFang SC', monospace; }
+.agent-join-content, .platform-jury-content, .agent-relay-content, .judgment-library { padding: 24px; display: flex; flex-direction: column; gap: 18px; }
+.agent-join-content p, .platform-jury-content p, .agent-relay-content p { font-size: 13px; line-height: 1.9; margin: 0; color: #cec0d4; }
+.agent-join-intro, .agent-relay-lead { color: #f6d85c !important; font-weight: 800; }
+.agent-mode-options, .agent-role-options { border: 1px solid #635069; padding: 16px; min-width: 0; }
+.agent-mode-options legend, .agent-role-options legend { padding-inline: 7px; color: #e6d0e8; font-size: 12px; font-weight: 800; }
+.agent-mode-options label { display: flex; align-items: center; gap: 10px; color: #c9b9ce; font-size: 12px; padding: 12px; border: 2px solid transparent; cursor: pointer; }
+.agent-mode-options label.is-selected { border-color: #f6d85c; background: #352b32; color: #f6d85c; }
+.agent-mode-options input, .agent-role-options input { accent-color: #f6d85c; }
+.agent-role-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+.agent-role-card { position: relative; display: flex; flex-direction: column; gap: 11px; border: 2px solid #5e4b66; padding: 15px; background: #2b2131; min-width: 0; }
+label.agent-role-card { cursor: pointer; }
+.agent-role-card strong { font-size: 14px; color: #f3e3c6; }
+.agent-role-card span { font-size: 11px; color: #c5b5cc; line-height: 1.7; overflow-wrap: anywhere; }
+.agent-role-card.is-selected { border-color: #f6d85c; background: #3b2d35; }
+.agent-seats { display: flex; flex-direction: column; gap: 16px; }
+.agent-join-secondary { font-size: 11px; }
+.agent-invitation { padding: 19px; border: 2px solid #7be1d2; background: #1e302f; display: flex; flex-direction: column; gap: 14px; }
+.agent-invitation h3 { font-size: 14px; color: #8cf3de; margin: 0; }
+.agent-invitation label, .agent-relay-label { font-size: 12px; color: #e6d6e9; font-weight: 800; }
+.agent-invite-text, .agent-relay-content textarea { width: 100%; resize: vertical; padding: 13px; border: 2px solid #6b5775; border-radius: 0; background: #100d18; color: #f4e6cf; font: 12px/1.8 'Courier New', monospace; }
+.agent-rules-links { border-top: 1px solid #5c4964; padding-top: 16px; color: #bfaec9; font-size: 12px; }
+.agent-rules-links summary { cursor: pointer; color: #9edbd2; padding: 4px 0; font-weight: 700; }
+.agent-rules-links p { margin-top: 14px; font-size: 12px; }
+.agent-rules-links nav { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; }
+.agent-rules-links a { color: #7be1d2; text-decoration: underline; text-underline-offset: 4px; }
+.agent-join-error, .platform-jury-error, .platform-feedback { color: #ffb0a9 !important; border: 1px solid #b46369; background: #41232f; padding: 14px; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.platform-jury-content h3 { margin: 0; color: #f6d85c; font-size: 22px; font-weight: 900; }
+.platform-jury-options { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.platform-jury-option { display: flex; flex-direction: column; gap: 15px; padding: 23px; border: 2px solid #d77971; background: #3b252e; color: #ffe6d9; cursor: pointer; text-align: left; }
+.platform-jury-option--defendant { border-color: #65a69e; background: #1e3435; color: #c4f7ea; }
+.platform-jury-option strong { font-size: 23px; font-weight: 900; }
+.platform-jury-option > span, .platform-jury-option small { font-size: 12px; }
+.platform-jury-option[aria-pressed=true] { outline: 3px solid #f6d85c; outline-offset: 3px; }
+.platform-jury-option:disabled { cursor: default; opacity: .62; }
+.platform-jury-tally, .platform-jury-result, .platform-jury-unresolved { padding: 16px; border: 1px solid #66506e; background: #2b2132; }
+.platform-jury-result h4 { color: #f6d85c; margin: 0 0 12px; font-size: 17px; }
+.platform-jury-result blockquote { color: #f1dfc6; padding-left: 15px; border-left: 3px solid #f6d85c; font-size: 13px; line-height: 1.8; }
+.platform-jury-rules { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid #594660; }
+.platform-jury-rules p, .platform-jury-notice { font-size: 11px !important; color: #b5a4bf !important; }
+.agent-relay-steps { padding-left: 22px; color: #dbccdf; font-size: 12px; line-height: 2; }
+.agent-relay-notice { border-left: 3px solid #f6d85c; padding-left: 13px; color: #f1ddb2 !important; }
+.agent-relay-state, .agent-relay-receipt { background: #203832; color: #a4f0d4 !important; border: 1px solid #528d7a; padding: 13px; }
+.agent-relay-content textarea { min-height: 170px; }
+.judgment-library-modal { width: min(940px, calc(100vw - 32px)); max-width: 940px !important; }
+.judgment-search { display: flex; gap: 12px; }
+.judgment-search input { min-width: 0; width: 100%; border: 2px solid #6b5573; border-radius: 0; background: #120e1a; color: #f0e3ce; font: inherit; font-size: 13px; line-height: 1.8; padding: 11px 13px; }
+.judgment-search input::placeholder, .agent-relay-content textarea::placeholder { color: #a795b5; opacity: 1; }
+.judgment-search .platform-button { flex-shrink: 0; }
+.judgment-library-note { color: #c2b0cd; font-size: 11px; line-height: 1.8; margin: 0; }
+.judgment-results { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.judgment-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.judgment-meta time { color: #b5a0c0; font-size: 10px; }
+.judgment-results .platform-judgment-card p { color: #bba8c8; font-size: 11px; margin: 0 0 15px; }
+.judgment-card-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; }
+.judgment-card-footer > span { color: #bca7c9; font-size: 10px; }
+.judgment-more { align-self: center; }
+.judgment-empty { padding: 35px 20px; text-align: center; border: 2px dashed #625267; }
+.judgment-empty h3 { color: #eedfc9; font-size: 18px; }
+.judgment-empty p { color: #bfaccd; font-size: 12px; line-height: 1.8; }
+@media (max-width: 1000px) { .court-lobby-layout { grid-template-columns: minmax(0,1fr); } .court-lobby-aside { display: none; } .platform-hero { gap: 20px; } .platform-recent-judgments { grid-template-columns: repeat(2,minmax(0,1fr)); } .platform-hero h1 { font-size: 37px; } .platform-actions { gap: 9px; } .platform-actions .platform-button { padding: 10px; font-size: 11px; } }
+@media (max-width: 700px) { .platform-home { padding: 18px 18px 0; } .platform-hero { grid-template-columns: 1fr; padding: 15px 0 28px; gap: 28px; } .platform-hero h1 { font-size: clamp(35px,9vw,51px); } .platform-hero h1 br:nth-child(2) { display: none; } .platform-hero-intro { font-size: 13px; margin: 17px 0; } .platform-actions .platform-button { flex: 1; font-size: 12px; padding: 11px 8px; gap: 8px; } .platform-hero-note { max-width: none; margin-top: 17px; } .platform-pixel-court { min-height: 280px; padding-top: 17px; } .platform-hero-cast { margin-top: 24px; } .platform-hero-character .character-portrait { max-width: 160px; } .platform-speech { font-size: 9px; } .platform-how { gap: 12px; padding: 18px 0; } .platform-how p { align-items: flex-start; gap: 8px; } .platform-how b { font-size: 20px; } .platform-how strong { font-size: 11px; } .platform-how span { font-size: 9px; } .platform-section { padding-block: 28px; } .platform-section-heading { flex-wrap: wrap; gap: 10px; } .platform-section-heading h2, .court-lobby-header h2 { font-size: 20px; } .platform-case-picker { grid-template-columns: 1fr; } .platform-case-options { display: grid; grid-template-columns: 1fr 1fr; } .platform-case-options button { padding: 12px 10px; font-size: 11px; border: 1px solid #463a50; } .platform-case-options button span { display: block; margin-bottom: 4px; } .platform-case-preview { border-left: 0; border-top: 2px solid #625267; padding: 22px; } .platform-case-preview h3 { font-size: 20px; } .platform-live-toolbar { gap: 10px; flex-wrap: wrap; } .platform-tabs { gap: 16px; } .platform-tabs button { font-size: 15px; } .platform-live-note { font-size: 9px; } .court-lobby-games, .platform-recent-judgments, .judgment-results { grid-template-columns: 1fr; } .court-lobby-header { gap: 12px; } .court-lobby-header p { font-size: 11px; } .court-lobby-refresh { padding: 9px; font-size: 10px; } .platform-archive-empty { flex-wrap: wrap; padding: 22px; gap: 14px; } .platform-archive-empty > span { font-size: 32px; } .platform-archive-empty > div { flex: 1; min-width: 170px; } .platform-archive-empty .platform-text-button { margin-left: 0; } .platform-home-footer { flex-direction: column; } .agent-join-content, .platform-jury-content, .agent-relay-content, .judgment-library { padding: 18px; } .agent-role-grid { grid-template-columns: 1fr; } .agent-role-card { padding: 14px; gap: 9px; } .platform-jury-option { padding: 17px; } .platform-jury-option strong { font-size: 19px; } .judgment-search { gap: 8px; } .judgment-search .platform-button { font-size: 11px; padding-inline: 11px; } }
+@media (prefers-reduced-motion: reduce) { .platform-home *, .platform-home *::before, .platform-home *::after { scroll-behavior: auto !important; transition: none !important; } }
+/* Size native dialogs to their actual panel and keep long case files scrollable. */
+.court-modal { width: min(760px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 40px); margin: auto; overflow-y: auto; overscroll-behavior: contain; }
+.court-modal__content { width: 100%; max-width: none; }
+.agent-join-modal .court-modal__content, .platform-jury-modal .court-modal__content, .agent-relay-modal .court-modal__content, .judgment-library-modal .court-modal__content, .court-lobby-modal .court-modal__content { border: 2px solid #78617b; border-radius: 0; background: #201926; color: #eee1ce; box-shadow: none; }
+.agent-join-modal .court-modal__header, .platform-jury-modal .court-modal__header, .agent-relay-modal .court-modal__header, .judgment-library-modal .court-modal__header, .court-lobby-modal .court-modal__header { background: #2b2233; border-bottom: 2px solid #66516f; }
+.agent-join-modal .court-modal__header h2, .platform-jury-modal .court-modal__header h2, .agent-relay-modal .court-modal__header h2, .judgment-library-modal .court-modal__header h2 { font-family: inherit; font-weight: 900; color: #f6d85c; }
+.court-modal__header p { overflow-wrap: anywhere; line-height: 1.7; }
+.court-modal__close { min-width: 36px; min-height: 36px; flex-shrink: 0; }
+.court-lobby-modal { width: min(1100px, calc(100vw - 32px)); }
+.platform-home .court-lobby { padding: 0; }
+.court-lobby-card, .court-lobby-status, .court-lobby-refresh, .court-lobby-seats li, .court-lobby-watch, .court-lobby-join, .court-lobby-aside, .agent-mode-options, .agent-role-card { border-radius: 0; }
+.court-lobby-aside { margin-top: 0; }
+.court-lobby-seats li { background: transparent; }
+.agent-role-grid { padding: 0; }
+.agent-mode-options { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.agent-judge-options { border: 1px solid #635069; padding: 16px; margin: 0; }
+.agent-judge-options legend { color: #e6d0e8; font-size: 12px; font-weight: 800; padding-inline: 7px; }
+.court-main:has(.platform-home) { max-width: 1280px; padding: 0; }
+.court-app:has(.platform-home) { background: radial-gradient(ellipse at 80% 0%, #35243c, #171320 55%); }
+.platform-game-strip { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; border: 2px solid #6e5776; background: #2b2232; color: #eee1ce; padding: 15px; margin-bottom: 20px; }
+.platform-game-strip > div { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 7px; }
+.platform-game-strip strong { font-size: 14px; color: #f6d85c; }
+.platform-game-strip div span { color: #c8b5d1; font-size: 11px; line-height: 1.7; }
+.platform-game-strip > a { color: #7be1d2; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 700px) {
+  .court-modal { width: calc(100vw - 20px); max-width: calc(100vw - 20px); max-height: calc(100dvh - 24px); }
+  .court-modal__header { padding: 15px 18px; gap: 10px; }
+  .court-modal__header h2 { font-size: 18px; }
+  .agent-judge-options .agent-role-grid { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; }
+  .court-header__inner { padding: 12px 16px; gap: 8px; align-items: flex-start; }
+  .court-brand { gap: 8px; }
+  .court-brand__mark { width: 36px; height: 36px; }
+  .court-brand strong { font-size: 19px; }
+  .court-brand small { font-size: 9px; }
+  .court-header__actions { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .court-header__actions .court-button { padding: 8px; font-size: 10px; }
+  .court-main { padding: 16px 12px; }
+  .court-case-strip { padding: 17px 16px 10px; flex-wrap: wrap; }
+  .court-case-strip h1 { font-size: 20px; }
+  .court-case-brief { padding-inline: 16px; }
+  .court-phases { gap: 8px; padding: 12px 10px; overflow-x: auto; justify-content: flex-start; }
+  .court-phases > span { font-size: 9px; }
+  .court-theatre { padding: 17px 12px 0; }
+  .court-actors { gap: 7px; }
+  .court-actor__bench { padding: 8px 5px; min-height: 61px; }
+  .court-actor__bench strong { font-size: 10px; }
+  .court-actor__bench > span { font-size: 9px; letter-spacing: 1px; }
+  .court-actor__cue { font-size: 8px; }
+  .court-dialogue { padding: 13px 15px; min-height: 185px; }
+  .court-dialogue__text { font-size: 14px; }
+  .court-dialogue__heading > span { font-size: 11px; }
+  .court-dialogue__heading small { font-size: 9px; }
+  .court-controls { padding: 15px 12px; gap: 12px; }
+  .court-controls__playback, .court-controls__tools { flex-wrap: wrap; }
+  .court-controls__tools .court-button { font-size: 10px; }
+  .court-stage-footer { flex-wrap: wrap; padding: 12px 16px; font-size: 9px; }
+  .court-transcript { padding: 15px; }
+  .court-play-rule { gap: 8px; flex-wrap: wrap; }
+  .court-play-rule p { font-size: 10px; }
+  .court-footer { flex-wrap: wrap; padding: 14px 18px 24px; line-height: 1.8; }
+  .platform-game-strip { padding: 13px; }
+}
+
+.agent-relay-invitation { display: flex; flex-direction: column; gap: 12px; border: 1px solid #65506d; padding: 15px; }
+.agent-relay-invitation textarea { min-height: 0; }

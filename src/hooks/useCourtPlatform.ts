@@ -4,6 +4,35 @@ import type { GameInvitation, PlatformMode, PublicGame, JuryWinner } from '../ty
 import { newActionId, platformClient, publicGamePath } from '../utils/platformClient';
 
 const routeId = () => /^\/games\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname)?.[1];
+type LocalInvitations = Partial<Record<CourtRole, GameInvitation>>;
+const invitationKey = (id: string) => 'internet-court:invitation:' + id;
+const invitationsKey = (id: string) => 'internet-court:invitations:' + id;
+const validInvitation = (value: unknown): value is GameInvitation => {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as GameInvitation;
+  return typeof item.ticket === 'string' && /^[A-Za-z0-9_-]+$/.test(item.ticket) && ['judge', 'plaintiff', 'defendant'].includes(item.role) && item.path === '/join/' + item.ticket;
+};
+const restoreInvitations = (id: string): LocalInvitations => {
+  const invitations: LocalInvitations = {};
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(invitationsKey(id)) || '{}') as LocalInvitations;
+    for (const role of ['judge', 'plaintiff', 'defendant'] as const) {
+      if (validInvitation(saved?.[role]) && saved[role]?.role === role) invitations[role] = saved[role];
+    }
+  } catch { /* A malformed cache must not prevent browsing. */ }
+  try {
+    const legacy: unknown = JSON.parse(sessionStorage.getItem(invitationKey(id)) || 'null');
+    if (validInvitation(legacy) && !invitations[legacy.role]) invitations[legacy.role] = legacy;
+  } catch { /* Private browser storage can be unavailable. */ }
+  return invitations;
+};
+const restoreInvitation = (id: string): GameInvitation | undefined => {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(invitationKey(id)) || 'null');
+    if (validInvitation(value)) return value;
+  } catch { /* Fall back to any retained seat invitation. */ }
+  return Object.values(restoreInvitations(id))[0];
+};
 const message = (cause: unknown) => cause instanceof Error ? cause.message : '庭审服务暂未响应。';
 export function useCourtPlatform() {
   const [gameId, setGameId] = useState<string | undefined>(routeId);
@@ -15,7 +44,25 @@ export function useCourtPlatform() {
   const [listError, setListError] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [invitation, setInvitation] = useState<GameInvitation>();
+  const [connection, setConnection] = useState<'idle' | 'connecting' | 'live' | 'polling'>('idle');
+  const [invitation, setInvitation] = useState<GameInvitation | undefined>(() => gameId ? restoreInvitation(gameId) : undefined);
+  const [ownInvitations, setOwnInvitations] = useState<LocalInvitations>(() => gameId ? restoreInvitations(gameId) : {});
+  const invitationCache = useRef(new Map<string, LocalInvitations>());
+  if (gameId && !invitationCache.current.has(gameId)) invitationCache.current.set(gameId, ownInvitations);
+  const savedInvitations = useCallback((id: string) => {
+    let retained = invitationCache.current.get(id);
+    if (!retained) { retained = restoreInvitations(id); invitationCache.current.set(id, retained); }
+    return retained;
+  }, []);
+  const rememberInvitation = useCallback((id: string, next: GameInvitation) => {
+    const retained = { ...savedInvitations(id), [next.role]: next };
+    invitationCache.current.set(id, retained);
+    try {
+      sessionStorage.setItem(invitationsKey(id), JSON.stringify(retained));
+      sessionStorage.setItem(invitationKey(id), JSON.stringify(next));
+    } catch { /* All invitations remain available in this page's private memory. */ }
+    if (watchedId.current === id) { setOwnInvitations(retained); setInvitation(next); }
+  }, [savedInvitations]);
   const [voting, setVoting] = useState(false);
   const [voteError, setVoteError] = useState<string>();
   const [localVote, setLocalVote] = useState<JuryWinner>();
@@ -34,14 +81,14 @@ export function useCourtPlatform() {
   const watch = useCallback((id: string) => {
     if (watchedId.current !== id) requestRef.current?.abort();
     watchedId.current = id;
-    if (gameRef.current?.id !== id) { setInvitation(undefined); setLocalVote(undefined); setVoteError(undefined); gameRef.current = undefined; setGame(undefined); }
+    if (gameRef.current?.id !== id) { const retained = savedInvitations(id); setOwnInvitations(retained); setInvitation(restoreInvitation(id) || Object.values(retained)[0]); setLocalVote(undefined); setVoteError(undefined); gameRef.current = undefined; setGame(undefined); }
     setGameId(id); setError(undefined);
-    window.history.pushState(null, '', publicGamePath(id));
-  }, []);
+    if (window.location.pathname !== publicGamePath(id)) window.history.pushState(null, '', publicGamePath(id));
+  }, [savedInvitations]);
   const leave = useCallback(() => {
     watchedId.current = undefined;
     requestRef.current?.abort(); setGameId(undefined); gameRef.current = undefined; setGame(undefined);
-    setInvitation(undefined); setLocalVote(undefined); setError(undefined); setVoteError(undefined);
+    setInvitation(undefined); setOwnInvitations({}); setLocalVote(undefined); setError(undefined); setVoteError(undefined);
     window.history.pushState(null, '', '/');
   }, []);
   const refreshList = useCallback(async () => {
@@ -56,24 +103,59 @@ export function useCourtPlatform() {
     disposed.current = false;
     const pop = () => {
       const id = routeId();
+      if (id === watchedId.current) return;
       requestRef.current?.abort();
       watchedId.current = id;
-      gameRef.current = undefined; setGame(undefined); setGameId(id); setInvitation(undefined); setLocalVote(undefined);
+      const retained = id ? savedInvitations(id) : {};
+      gameRef.current = undefined; setGame(undefined); setGameId(id); setOwnInvitations(retained); setInvitation(id ? restoreInvitation(id) || Object.values(retained)[0] : undefined); setLocalVote(undefined); setVoteError(undefined); setError(undefined);
     };
     window.addEventListener('popstate', pop);
     return () => { disposed.current = true; requestRef.current?.abort(); listRequest.current?.abort(); window.removeEventListener('popstate', pop); };
-  }, []);
+  }, [savedInvitations]);
   useEffect(() => {
-    if (!gameId) return;
+    if (!gameId) { setConnection('idle'); return; }
     let active = true; let timer: number | undefined; let current: AbortController | undefined;
-    const poll = async () => {
-      current = new AbortController();
-      try { const next = await platformClient.get(gameId, current.signal); if (active) { apply(next); setError(undefined); } }
-      catch (cause) { if (active && !current.signal.aborted) setError(message(cause)); }
-      finally { if (active) timer = window.setTimeout(poll, 1200); }
+    let source: EventSource | undefined; let polling = false;
+    const terminal = (snapshot: PublicGame) => snapshot.status === 'completed' || snapshot.status === 'unresolved';
+    const receive = (snapshot: PublicGame) => {
+      if (!active || snapshot.id !== gameId) return;
+      apply(snapshot); setError(undefined);
+      if (terminal(snapshot)) { source?.close(); window.clearTimeout(timer); setConnection('idle'); }
     };
-    void poll();
-    return () => { active = false; current?.abort(); window.clearTimeout(timer); };
+    const poll = async () => {
+      if (!active) return;
+      const controller = new AbortController(); current = controller; let finished = false;
+      try { const next = await platformClient.get(gameId, controller.signal); if (active) { receive(next); finished = terminal(next); } }
+      catch (cause) { if (active && polling && !controller.signal.aborted) setError(message(cause)); }
+      finally { if (active && polling && !finished && current === controller) timer = window.setTimeout(poll, 2500); }
+    };
+    const fallback = () => {
+      if (!active || polling) return;
+      source?.close(); polling = true; setConnection('polling');
+      current?.abort(); void poll();
+    };
+    setConnection('connecting');
+    if (typeof EventSource === 'undefined') fallback();
+    else {
+      // One push stream for the selected game. The fallback starts only when it fails.
+      try {
+        const after = gameRef.current?.id === gameId ? gameRef.current.revision : 0;
+        source = new EventSource('/api/games/' + encodeURIComponent(gameId) + '/events?after=' + after);
+        source.onopen = () => { if (active) { setConnection('live'); setError(undefined); } };
+        source.addEventListener('game', event => {
+          if (!active) return;
+          try {
+            const snapshot = JSON.parse((event as MessageEvent<string>).data) as PublicGame;
+            if (snapshot.id !== gameId || !Number.isInteger(snapshot.revision) || !snapshot.session) throw new Error('invalid snapshot');
+            receive(snapshot);
+          } catch { fallback(); }
+        });
+        source.onerror = fallback;
+        // An initial bounded read also handles a proxy that delays the first SSE event.
+        void poll();
+      } catch { fallback(); }
+    }
+    return () => { active = false; source?.close(); current?.abort(); window.clearTimeout(timer); };
   }, [gameId, apply]);
 
   const create = useCallback(async (caseData: CaseData, role: CourtRole, mode: PlatformMode) => {
@@ -86,23 +168,23 @@ export function useCourtPlatform() {
       const result = await platformClient.create(caseData, role, mode, pendingCreate.current.id, controller.signal);
       if (disposed.current || controller.signal.aborted) return false;
       owners.current.set(result.game.id, result.ownerToken);
-      watch(result.game.id); apply(result.game); setInvitation(result.invitation); pendingCreate.current = undefined;
+      watch(result.game.id); apply(result.game); rememberInvitation(result.game.id, result.invitation); pendingCreate.current = undefined;
       return true;
     } catch (cause) { if (!controller.signal.aborted && !disposed.current) setError(message(cause)); return false; }
     finally { pendingOperation.current = false; if (!disposed.current) setBusy(false); }
-  }, [apply, watch]);
+  }, [apply, watch, rememberInvitation]);
   const invite = useCallback(async (id: string, role: CourtRole) => {
     if (pendingOperation.current) return false;
     pendingOperation.current = true; setBusy(true); setError(undefined);
     const controller = new AbortController(); requestRef.current = controller;
     try {
-      const next = await platformClient.invite(id, role, owners.current.get(id), controller.signal);
+      const next = savedInvitations(id)[role] || await platformClient.invite(id, role, owners.current.get(id), controller.signal);
       const snapshot = await platformClient.get(id, controller.signal);
       if (disposed.current || controller.signal.aborted) return false;
-      watch(id); apply(snapshot); setInvitation(next); return true;
+      watch(id); apply(snapshot); rememberInvitation(id, next); return true;
     } catch (cause) { if (!controller.signal.aborted && !disposed.current) setError(message(cause)); return false; }
     finally { pendingOperation.current = false; if (!disposed.current) setBusy(false); }
-  }, [apply, watch]);
+  }, [apply, watch, savedInvitations, rememberInvitation]);
   const vote = useCallback(async (side: JuryWinner) => {
     const id = gameRef.current?.id;
     if (!id || voting || localVote) return false;
@@ -117,5 +199,5 @@ export function useCourtPlatform() {
     } catch (cause) { if (!controller.signal.aborted && !disposed.current && watchedId.current === id) setVoteError(message(cause)); return false; }
     finally { if (!disposed.current) setVoting(false); }
   }, [apply, voting, localVote]);
-  return { gameId, game, gameRef, games, listLoading, listError, refreshList, watch, leave, error, busy, invitation, create, invite, localVote, voting, voteError, vote };
+  return { gameId, game, gameRef, applyGame: apply, connection, games, listLoading, listError, refreshList, watch, leave, error, busy, invitation, ownInvitations, create, invite, localVote, voting, voteError, vote };
 }

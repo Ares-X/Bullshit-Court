@@ -22,4 +22,7 @@ const server = createServer(async (req, res) => {
 });
 server.once('close', () => { bridge.close(); platform.close(); });
 server.listen(Number(process.env.PORT || 3000), '127.0.0.1', () => console.log(`Local court: http://127.0.0.1:${server.address().port}`));
-for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => server.close());
+// Active event streams must end before HTTP close can finish.
+for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
+  platform.close(); bridge.close(); server.close(); server.closeIdleConnections();
+});

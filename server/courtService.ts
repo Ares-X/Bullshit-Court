@@ -4,7 +4,7 @@ import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { applyExternalCourtRuling, applyExternalCourtTurn, castJuryVote, createCourtSession, rehearsalTurn, validateCourtSession } from '../src/utils/courtRuntime';
 import type { CourtRole, CourtSession } from '../src/types';
-import type { AgentState, AgentTurnInput, CreateGameInput, CreateGameResult, GameInvitation, JuryWinner, PrepareVerdictsInput, PublicGame, PublicSeat } from '../src/types/platform';
+import type { AgentState, AgentTurnInput, CreateGameInput, CreateGameResult, GameInvitation, JuryWinner, PrepareVerdictsInput, PublicGame, PublicSeat, JudgmentPage, InvitationContext } from '../src/types/platform';
 
 const ROLES: CourtRole[] = ['judge', 'plaintiff', 'defendant'];
 const DAY = 24 * 60 * 60 * 1000;
@@ -30,7 +30,8 @@ interface InternalGame {
   actions: Record<string, { fingerprint: string; result: unknown }>;
 }
 interface Visitor { csrf: string; createdAt: number }
-interface Waiter { gameId: string; revision: number; resolve: (state: AgentState) => void; reject: (error: Error) => void; token: string; timer: ReturnType<typeof setTimeout> }
+interface PublicSubscription { gameId: string; revision: number; send: (game: PublicGame) => void; close: () => void }
+interface Waiter { gameId: string; revision: number; resolve: (state: AgentState) => void; reject: (error: Error) => void; token: string; timer: ReturnType<typeof setTimeout>; cleanup: () => void }
 
 /** The sole owner of live sessions. All accepted changes commit synchronously before acknowledgement. */
 export class CourtService {
@@ -40,6 +41,7 @@ export class CourtService {
   private visitors = new Map<string, Visitor>();
   private creations = new Map<string, {fingerprint: string; result: CreateGameResult}>();
   private waiters = new Set<Waiter>();
+  private subscriptions = new Set<PublicSubscription>();
   private timer?: ReturnType<typeof setInterval>;
   private closed = false;
   readonly now: () => number;
@@ -101,8 +103,12 @@ export class CourtService {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     this.games.set(game.id, game);
     if (creation) this.creations.set(creation.key,{fingerprint:creation.fingerprint,result:creation.result});
+    for (const subscription of [...this.subscriptions]) if (subscription.gameId === game.id && game.revision > subscription.revision) {
+      subscription.revision = game.revision;
+      try { subscription.send(this.public(game)); } catch { this.subscriptions.delete(subscription); subscription.close(); }
+    }
     for (const waiter of [...this.waiters]) if (waiter.gameId === game.id && game.revision > waiter.revision) {
-      clearTimeout(waiter.timer); this.waiters.delete(waiter); waiter.resolve(this.state(waiter.token));
+      waiter.cleanup(); waiter.resolve(this.state(waiter.token));
     }
   }
   private change(game: InternalGame) { game.revision++; game.updatedAt = this.now(); }
@@ -168,6 +174,56 @@ export class CourtService {
     return result;
   }
   list(): PublicGame[] { this.open(); return [...this.games.values()].filter(g=>g.mode === 'multiplayer').sort((a,b) => b.createdAt-a.createdAt).slice(0,100).map(g => this.public(g)); }
+  judgments(input: {query?: string; cursor?: string; limit?: number} = {}): JudgmentPage {
+    this.open();
+    if (input.query !== undefined && (typeof input.query !== 'string' || input.query.length > 200)) fail(400, 'INVALID_INPUT', '检索词过长。');
+    const query = (input.query || '').trim().toLocaleLowerCase();
+    const limit = input.limit ?? 20;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) fail(400, 'INVALID_INPUT', '每页数量须为 1 到 50。');
+    let cursor: {createdAt: number; id: string; query: string} | undefined;
+    if (input.cursor) {
+      try {
+        if (input.cursor.length > 1000 || !/^[A-Za-z0-9_-]+$/.test(input.cursor)) throw new Error();
+        const decoded = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'));
+        if (!Number.isFinite(decoded.createdAt) || typeof decoded.id !== 'string' || decoded.query !== query) throw new Error();
+        cursor = decoded;
+      } catch { fail(400, 'INVALID_CURSOR', '分页位置无效，请重新检索。'); }
+    }
+    const matches = [...this.games.values()].filter(game => game.mode === 'multiplayer' && (game.session.status === 'completed' || game.outcome === 'unresolved'))
+      .sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))
+      .filter(game => !cursor || game.createdAt < cursor.createdAt || (game.createdAt === cursor.createdAt && game.id.localeCompare(cursor.id) < 0))
+      .map(game => this.public(game)).filter(game => !query || JSON.stringify(game.session).toLocaleLowerCase().includes(query));
+    const games = matches.slice(0, limit), last = games.at(-1);
+    return {games, ...(matches.length > limit && last ? {nextCursor: Buffer.from(JSON.stringify({createdAt:last.createdAt,id:last.id,query})).toString('base64url')} : {})};
+  }
+  /** Committed public snapshots only. The caller owns the returned release function. */
+  subscribe(id: string, afterRevision: number, send: (game: PublicGame) => void, close: () => void = () => {}): () => void {
+    const current = this.get(id);
+    if (!Number.isSafeInteger(afterRevision) || afterRevision < 0) fail(400, 'INVALID_INPUT', '版本号无效。');
+    if (this.subscriptions.size + this.waiters.size >= 128) fail(429, 'BUSY', '等待连接过多。');
+    const subscription = {gameId:id, revision:Math.max(current.revision, afterRevision), send, close};
+    this.subscriptions.add(subscription);
+    try { if (current.revision > afterRevision) send(current); }
+    catch (error) { this.subscriptions.delete(subscription); throw error; }
+    return () => { this.subscriptions.delete(subscription); };
+  }
+  waitPublic(id: string, input: {afterRevision: number; timeoutMs?: number; signal?: AbortSignal}): Promise<PublicGame> {
+    const current = this.get(id);
+    if (!Number.isSafeInteger(input.afterRevision) || input.afterRevision < 0) return Promise.reject(new CourtServiceError(400, 'INVALID_INPUT', '版本号无效。'));
+    const timeout = Math.max(0, Math.min(input.timeoutMs ?? 15000, 20000));
+    if (!Number.isFinite(timeout)) return Promise.reject(new CourtServiceError(400, 'INVALID_INPUT', '等待时间无效。'));
+    if (input.signal?.aborted) return Promise.reject(new CourtServiceError(499, 'DISCONNECTED', '连接已断开。'));
+    if (current.revision > input.afterRevision) return Promise.resolve(current);
+    return new Promise((resolveWait, reject) => {
+      let release = () => {}; let timer: ReturnType<typeof setTimeout> | undefined;
+      const clean = () => { release(); if (timer) clearTimeout(timer); input.signal?.removeEventListener('abort', aborted); };
+      const aborted = () => { clean(); reject(new CourtServiceError(499, 'DISCONNECTED', '连接已断开。')); };
+      const closed = () => { clean(); reject(new CourtServiceError(503, 'CLOSED', '庭审服务已关闭。')); };
+      release = this.subscribe(id, input.afterRevision, game => { clean(); resolveWait(game); }, closed);
+      input.signal?.addEventListener('abort', aborted, {once:true});
+      timer = setTimeout(() => { clean(); resolveWait(this.get(id)); }, timeout);
+    });
+  }
   get(id: string): PublicGame { return this.public(this.game(id)); }
   invite(id: string, input: {role: CourtRole; ownerToken?: string}): GameInvitation {
     const game = copy(this.game(id)); const r = role(input.role);
@@ -178,6 +234,14 @@ export class CourtService {
     const entry = this.tickets.get(text(ticket, '邀请', 200)) || fail(404, 'NOT_FOUND', '邀请不存在。');
     const game = this.game(entry.gameId);
     return {gameId: game.id, role: entry.role, claimed: !!entry.claimed, game: this.public(game), guidePath: '/agents/guide.md', rolePromptPath: `/agents/roles/${entry.role}.md`};
+  }
+  invitationContext(ticket: string): InvitationContext {
+    const info = this.inspectInvitation(ticket);
+    const entry = this.tickets.get(ticket)!;
+    return entry.claimed ? this.state(entry.claimed.seatToken) : {
+      game:info.game, gameId:info.gameId, role:info.role, claimed:false, action:'claim',
+      guidePath:info.guidePath, rolePromptPath:info.rolePromptPath, claimPath:`/api/invitations/${ticket}/claim`,
+    };
   }
   join(input: {ticket: string; agentName: string; clientActionId: string}) {
     this.open(); const ticket = text(input.ticket, '邀请', 200); const entry = this.tickets.get(ticket) || fail(404, 'NOT_FOUND', '邀请不存在。');
@@ -249,21 +313,26 @@ export class CourtService {
     game.votes[identity] = input.winner; this.change(game); this.settle(game);
     game.actions[action.key] = {fingerprint:action.fingerprint, result:{voted:true}}; this.save(game); return this.public(game);
   }
-  wait(rawToken: string, input: {afterRevision: number; timeoutMs?: number}): Promise<AgentState> {
+  wait(rawToken: string, input: {afterRevision: number; timeoutMs?: number; signal?: AbortSignal}): Promise<AgentState> {
     const state = this.state(rawToken);
     if (!Number.isSafeInteger(input.afterRevision) || input.afterRevision < 0) return Promise.reject(new CourtServiceError(400,'INVALID_INPUT','版本号无效。'));
+    if (input.signal?.aborted) return Promise.reject(new CourtServiceError(499,'DISCONNECTED','连接已断开。'));
     if (state.expectedRevision > input.afterRevision || state.roleFinished) return Promise.resolve(state);
     const timeout = Math.max(0, Math.min(input.timeoutMs ?? 15000, 20000));
     if (!Number.isFinite(timeout)) return Promise.reject(new CourtServiceError(400,'INVALID_INPUT','等待时间无效。'));
-    if (this.waiters.size >= 128) return Promise.reject(new CourtServiceError(429,'BUSY','等待连接过多。'));
+    if (this.waiters.size + this.subscriptions.size >= 128) return Promise.reject(new CourtServiceError(429,'BUSY','等待连接过多。'));
     return new Promise((resolveWait, reject) => {
-      const waiter: Waiter = {gameId: state.game.id, revision:input.afterRevision, token:rawToken, resolve:resolveWait, reject, timer:setTimeout(() => { this.waiters.delete(waiter); resolveWait(this.state(rawToken)); },timeout)};
-      this.waiters.add(waiter);
+      const cleanup = () => { clearTimeout(waiter.timer); this.waiters.delete(waiter); input.signal?.removeEventListener('abort', aborted); };
+      const aborted = () => { cleanup(); reject(new CourtServiceError(499,'DISCONNECTED','连接已断开。')); };
+      const waiter: Waiter = {gameId: state.game.id, revision:input.afterRevision, token:rawToken, resolve:resolveWait, reject, cleanup,
+        timer:setTimeout(() => { cleanup(); resolveWait(this.state(rawToken)); },timeout)};
+      this.waiters.add(waiter); input.signal?.addEventListener('abort',aborted,{once:true});
     });
   }
   tick() {
     this.open();
     for (const old of [...this.games.values()]) {
+      if (old.session.status === 'completed' || old.outcome === 'unresolved') continue;
       const game = copy(old); const before = game.revision; this.pump(game);
       if (game.revision !== before) this.save(game);
     }
@@ -271,7 +340,9 @@ export class CourtService {
   close() {
     if (this.closed) return;
     if (this.timer) clearInterval(this.timer);
-    for (const waiter of this.waiters) { clearTimeout(waiter.timer); waiter.reject(new CourtServiceError(503,'CLOSED','庭审服务已关闭。')); }
-    this.waiters.clear(); this.db.close(); this.closed = true;
+    for (const waiter of [...this.waiters]) { waiter.cleanup(); waiter.reject(new CourtServiceError(503,'CLOSED','庭审服务已关闭。')); }
+    this.waiters.clear();
+    for (const subscription of [...this.subscriptions]) { this.subscriptions.delete(subscription); subscription.close(); }
+    this.db.close(); this.closed = true;
   }
 }
