@@ -47,3 +47,13 @@ export interface CreateGameInput { caseData: CaseData; role: CourtRole; mode?: P
 export interface CreateGameResult { game: PublicGame; ownerToken: string; invitation: GameInvitation }
 export interface AgentTurnInput { turnId: string; revision: number; clientActionId: string; payload: unknown }
 export interface PrepareVerdictsInput { clientActionId: string; plaintiff: unknown; defendant: unknown; revision?: number }
+
+export interface JudgmentPage { games: PublicGame[]; nextCursor?: string }
+export type InvitationContext = AgentState | {
+  game: PublicGame; gameId: string; role: CourtRole; claimed: false; action: 'claim';
+  guidePath: string; rolePromptPath: string; claimPath: string;
+};
+/** Agent-authored JSON carried by the seat owner's browser to the existing mutation endpoints. */
+export type RelayCourtAction = {
+  gameId: string; role: CourtRole; turnId: string | null; revision: number; clientActionId: string;
+} & ({ courtAction: 'turn'; payload: unknown } | { courtAction: 'verdicts'; plaintiff: unknown; defendant: unknown });

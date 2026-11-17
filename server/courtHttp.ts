@@ -5,7 +5,7 @@ import { createCourtMcpHandler } from './courtMcp';
 
 const MAX_BODY = 180_000;
 function json(res: ServerResponse, status: number, value: unknown) {
-  res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}); res.end(JSON.stringify(value));
+  res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer'}); res.end(JSON.stringify(value));
 }
 async function body(req: IncomingMessage) {
   let size = 0; const chunks: Buffer[] = [];
@@ -19,13 +19,21 @@ function visitorCookie(req: IncomingMessage) { return req.headers.cookie?.split(
 export function createCourtHttpHandler(options: {service?: CourtService; storePath?: string; publicBaseUrl?: string} = {}) {
   const service = options.service || new CourtService({storePath:options.storePath});
   const mcp = createCourtMcpHandler({service, publicBaseUrl:options.publicBaseUrl});
+  const connections = new Set<() => void>();
+  let closed = false;
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
     let url: URL;
     try { url = new URL(req.url || '/', options.publicBaseUrl || `http://${req.headers.host || 'localhost'}`); } catch { return false; }
     const path = url.pathname;
-    if (path === '/mcp') { await mcp(req,res); return true; }
-    if (!/^\/api\/(games|invitations|visitor)(\/|$)/.test(path) && !path.startsWith('/join/')) return false;
+    if (path === '/mcp') {
+      if (closed) { json(res,503,{error:'CLOSED',message:'庭审服务已关闭。'}); return true; }
+      const close = () => res.end(); connections.add(close);
+      try { await mcp(req,res); } finally { connections.delete(close); }
+      return true;
+    }
+    if (!/^\/api\/(games|judgments|invitations|visitor)(\/|$)/.test(path) && !path.startsWith('/join/')) return false;
     try {
+      if (closed) throw new CourtServiceError(503,'CLOSED','庭审服务已关闭。');
       const origin = options.publicBaseUrl ? new URL(options.publicBaseUrl).origin : url.origin;
       if (!options.publicBaseUrl && !['localhost','127.0.0.1','[::1]'].includes(url.hostname)) throw new CourtServiceError(403,'HOST','公开部署需要配置 COURT_PUBLIC_BASE_URL。');
       if (req.headers.origin && req.headers.origin !== origin) throw new CourtServiceError(403,'ORIGIN','不接受跨站请求。');
@@ -37,17 +45,21 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
         res.setHeader('set-cookie',`court_visitor=${visitor.visitorToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${origin.startsWith('https:') ? '; Secure' : ''}`);
         json(res,200,{csrfToken:visitor.csrfToken}); return true;
       }
+      if (path === '/api/judgments' && method === 'GET') {
+        json(res,200,service.judgments({query:url.searchParams.get('query') || undefined,cursor:url.searchParams.get('cursor') || undefined,limit:url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined})); return true;
+      }
       if (path === '/api/games') {
         if (method === 'GET') json(res,200,{games:service.list()});
         else if (method === 'POST') json(res,201,service.create(await body(req)));
         else throw new CourtServiceError(405,'METHOD','不支持该方法。');
         return true;
       }
-      const invitation = path.match(/^\/api\/invitations\/([^/]+)(\/claim)?$/);
+      const invitation = path.match(/^\/api\/invitations\/([^/]+)(\/(?:claim|context))?$/);
       if (invitation) {
         const ticket = decodeURIComponent(invitation[1]);
         if (!invitation[2] && method === 'GET') json(res,200,service.inspectInvitation(ticket));
-        else if (invitation[2] && method === 'POST') json(res,200,service.join({...await body(req),ticket}));
+        else if (invitation[2] === '/context' && method === 'GET') json(res,200,service.invitationContext(ticket));
+        else if (invitation[2] === '/claim' && method === 'POST') json(res,200,service.join({...await body(req),ticket}));
         else throw new CourtServiceError(405,'METHOD','不支持该方法。');
         return true;
       }
@@ -57,15 +69,21 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
         const base = origin; const lines = [
           '# 互联网法庭 · Agent 入场', '', `案件：${info.game.session.caseData.title}`, `席位：${info.role}（${info.claimed ? '已领取，请使用自己保存的席位令牌；此页不会返回它' : '等你入场'}）`,
           '', `先读取公共规则：${base}${info.guidePath}`, `再读取你的角色提示词：${base}${info.rolePromptPath}`, '',
+          '## 方式一：有工具能力的 Agent（MCP）',
           `MCP endpoint: ${base}/mcp`, `调用 court_join，ticket=${ticket}，agentName=你的名字，clientActionId=你自己生成的唯一操作编号。`,
           '保存返回的 seatToken，随后 court_state / court_wait / court_speak；法官封卷后 court_prepare_verdicts。',
-          '', '等价 HTTP：', `POST ${base}/api/invitations/${ticket}/claim`, 'JSON: {"agentName":"你的名字","clientActionId":"唯一编号"}',
+          '', '## 方式二：能发送请求的 Agent（HTTP）', `POST ${base}/api/invitations/${ticket}/claim`, 'JSON: {"agentName":"你的名字","clientActionId":"私密且唯一的领取编号"}',
           `GET ${base}/api/games/${info.gameId}/agent`, `GET ${base}/api/games/${info.gameId}/agent/wait?after=版本号&timeout=15`,
           `POST ${base}/api/games/${info.gameId}/turns`, 'JSON: {"turnId":"当前轮次","revision":当前版本,"clientActionId":"唯一编号","payload":{"text":"本轮发言","emotion":"normal","responseTo":[],"evidenceIds":[]}}',
           `POST ${base}/api/games/${info.gameId}/verdicts`,
-          'JSON: {"clientActionId":"替换为唯一操作编号","plaintiff":{"text":"依据实际材料填写公开宣判","emotion":"gavel","responseTo":[],"evidenceIds":[],"ruling":{"winner":"plaintiff","result":"依据实际材料填写结论","penalty":["温和游戏惩罚"],"quote":"一句收束笑话","reasons":["依据实际材料填写公开理由"],"evidenceIds":[],"consideredInterventionIds":[]}},"defendant":{"text":"依据实际材料填写公开宣判","emotion":"gavel","responseTo":[],"evidenceIds":[],"ruling":{"winner":"defendant","result":"依据实际材料填写结论","penalty":["温和游戏惩罚"],"quote":"一句收束笑话","reasons":["依据实际材料填写公开理由"],"evidenceIds":[],"consideredInterventionIds":[]}}}',
-          'plaintiff / defendant 均为完整条件判词对象，不能只传文本。按实际材料填写引用编号（没有对应材料时数组可为空；有证物时 ruling.evidenceIds 不可为空），不得照抄示例编号。consideredInterventionIds 必须列出所有实际庭审参与材料编号。两份均由已认证法官席提交，speaker 由服务设置，不必传入。revision 可省略，但建议使用最新 expectedRevision。',
-          '除领取邀请外，Agent 请求均使用 Authorization: Bearer <seatToken>。重试相同操作时保留相同 clientActionId 与正文。真人只在网页陪审投票，Agent 不得代投。',
+          'JSON: {"revision":当前版本,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。判词结构与引用约束请读公共规则；两份条件判词在陪审结果确定前保持私密。',
+          '', '## 方式三：只读网页的聊天 Agent（浏览器接力）',
+          `由玩家打开 ${base}/games/${info.gameId} 并在接力界面领取本席位，浏览器私下保存 seatToken 和领取编号。玩家仅负责运输 JSON，所有发言与判词仍由 Agent 撰写。`,
+          `Agent 读取 ${base}/api/invitations/${ticket}/context 获取自己的最新状态；未领取时只显示入场说明，此 GET 不领取席位。`,
+          '轮到你时只返回一个 JSON 对象：{"courtAction":"turn","gameId":"当前案件","role":"自己的角色","turnId":"当前turnId","revision":expectedRevision,"clientActionId":"唯一编号","payload":你的发言对象}。',
+          '法官封卷时返回：{"courtAction":"verdicts","gameId":"当前案件","role":"judge","turnId":null,"revision":expectedRevision,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。',
+          '等待时请稍后重读 context；提交失败或版本已变化时先重读状态。玩家把 Agent 的 JSON 粘贴到网页提交，并把结果交回 Agent；不要让玩家代写。此邀请地址是可读取本席位上下文的能力凭证，请仅交给自己的 Agent。',
+          'HTTP 席位状态、等待、发言和判词请求使用 Authorization: Bearer <seatToken>；只读 context 使用邀请地址本身。重试相同操作时保留相同 clientActionId 与正文。真人只在网页陪审投票，Agent 不得代投。',
           '', `公开旁听与回放：${base}/games/${info.gameId}`, '',
         ];
         res.writeHead(200,{'content-type':'text/markdown; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer'}); res.end(lines.join('\n')); return true;
@@ -74,6 +92,36 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
       if (gameRoute) {
         const gameId = decodeURIComponent(gameRoute[1]); const sub = gameRoute[2];
         if (!sub && method === 'GET') json(res,200,service.get(gameId));
+        else if (sub === 'events' && method === 'GET') {
+          const lastId = req.headers['last-event-id'];
+          if (lastId !== undefined && typeof lastId !== 'string') throw new CourtServiceError(400,'INVALID_INPUT','版本号无效。');
+          const after = Number(lastId ?? url.searchParams.get('after') ?? 0);
+          // Validate existence and reserve a bounded subscription before sending headers.
+          let release = () => {}; let heartbeat: ReturnType<typeof setInterval> | undefined; let ended = false;
+          const cleanup = () => { if (ended) return; ended = true; release(); if (heartbeat) clearInterval(heartbeat); connections.delete(close); res.removeListener('close',cleanup); };
+          const close = () => { cleanup(); res.end(); };
+          let initial: ReturnType<CourtService['get']> | undefined;
+          release = service.subscribe(gameId,after,game => {
+            if (!res.headersSent) { initial = game; return; }
+            res.write(`id: ${game.revision}\nevent: game\ndata: ${JSON.stringify(game)}\n\n`);
+            if (res.writableLength > 512_000) close();
+          },close);
+          connections.add(close); res.once('close',cleanup);
+          res.writeHead(200,{'content-type':'text/event-stream; charset=utf-8','cache-control':'no-store','connection':'keep-alive','x-accel-buffering':'no','x-content-type-options':'nosniff'});
+          res.flushHeaders();
+          if (initial) { res.write(`id: ${initial.revision}\nevent: game\ndata: ${JSON.stringify(initial)}\n\n`); if (res.writableLength > 512_000) close(); }
+          if (!ended) { heartbeat = setInterval(() => { if (res.writableLength > 512_000) close(); else if (!res.writableNeedDrain) res.write(': heartbeat\n\n'); },15000); heartbeat.unref(); }
+        }
+        else if (sub === 'wait' && method === 'GET') {
+          const controller = new AbortController();
+          const disconnect = () => controller.abort();
+          const close = () => { controller.abort(); res.end(); };
+          connections.add(close); res.once('close',disconnect);
+          try {
+            const game = await service.waitPublic(gameId,{afterRevision:Number(url.searchParams.get('after') || 0),timeoutMs:Number(url.searchParams.get('timeout') ?? 15)*1000,signal:controller.signal});
+            if (!res.destroyed && !res.writableEnded) json(res,200,game);
+          } finally { connections.delete(close); res.removeListener('close',disconnect); }
+        }
         else if (sub === 'invitations' && method === 'POST') json(res,200,service.invite(gameId,await body(req)));
         else if (sub === 'votes' && method === 'POST') {
           if (req.headers.origin !== origin) throw new CourtServiceError(403,'ORIGIN','陪审投票必须由同源网页发起。');
@@ -84,7 +132,15 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
           const seatToken = bearer(req); const state = service.state(seatToken);
           if (state.game.id !== gameId) throw new CourtServiceError(403,'GAME_SCOPE','席位令牌不能访问其他法庭。');
           if (sub === 'agent' && method === 'GET') json(res,200,state);
-          else if (sub === 'agent/wait' && method === 'GET') json(res,200,await service.wait(seatToken,{afterRevision:Number(url.searchParams.get('after') || 0),timeoutMs:Number(url.searchParams.get('timeout') || 15)*1000}));
+          else if (sub === 'agent/wait' && method === 'GET') {
+            const controller = new AbortController(); const disconnect = () => controller.abort();
+            const close = () => { controller.abort(); res.end(); };
+            connections.add(close); res.once('close',disconnect);
+            try {
+              const current = await service.wait(seatToken,{afterRevision:Number(url.searchParams.get('after') || 0),timeoutMs:Number(url.searchParams.get('timeout') ?? 15)*1000,signal:controller.signal});
+              if (!res.destroyed && !res.writableEnded) json(res,200,current);
+            } finally { connections.delete(close); res.removeListener('close',disconnect); }
+          }
           else if (sub === 'turns' && method === 'POST') json(res,200,service.speak(seatToken,await body(req)));
           else if (sub === 'verdicts' && method === 'POST') {
             const input = await body(req);
@@ -101,7 +157,7 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
       json(res,status,{error: error instanceof CourtServiceError ? error.code : error instanceof CourtRuntimeError ? error.code : 'INTERNAL',message:status === 500 ? '庭审服务发生错误，操作未确认。请先查询状态。' : (error as Error).message}); return true;
     }
   };
-  return Object.assign(handle,{service,close:() => { if (!options.service) service.close(); }});
+  return Object.assign(handle,{service,close:() => { if (closed) return; closed = true; for (const close of [...connections]) close(); if (!options.service) service.close(); }});
 }
 export function courtPlatformPlugin(options: {storePath?: string; publicBaseUrl?: string} = {}) {
   return {name:'court-platform',configureServer(server: {middlewares:{use:(middleware:unknown)=>void};httpServer?:{once:(event:string,listener:()=>void)=>void}|null}) {
