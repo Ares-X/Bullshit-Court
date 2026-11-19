@@ -67,7 +67,8 @@ test('public judgment HTTP library filters modes and lifecycle, searches, pagina
     assert.equal((await fetch(h.base+'/api/judgments?cursor=bad')).status,400);
     assert.equal((await fetch(h.base+'/api/judgments?limit=51')).status,400);
     assert.equal((await fetch(h.base+'/api/judgments?query=other&cursor='+first.nextCursor)).status,400);
-    assert.equal((await fetch(h.base+'/api/judgments',{headers:{origin:'https://evil.example'}})).status,403);
+    assert.equal((await fetch(h.base+'/api/judgments',{headers:{origin:'https://evil.example'}})).status,200,'cross-site GET of public library data is allowed');
+    assert.equal((await fetch(h.base+'/api/games',{method:'POST',headers:{origin:'https://evil.example','content-type':'application/json'},body:'{}'})).status,403,'cross-site POST stays blocked');
     const library=await (await fetch(h.base+'/api/judgments')).json();assert.equal(library.games.length,3,'also includes genuinely expired waiting jury, never the practice game or open seats');
     assert.ok(library.games.some(g=>g.id===waiting.game.id));
     const encoded=JSON.stringify(library);assert.ok(!encoded.includes(completed.ownerToken));assert.ok(!encoded.includes(completed.joined.judge.seatToken));assert.ok(!encoded.includes('绝不提前泄露-defendant'));
@@ -93,7 +94,7 @@ test('SSE pushes committed PublicGame snapshots, catches up via Last-Event-ID, a
     const bounded=await fetch(`${h.base}/api/games/${c.game.id}/wait?after=${current.revision}&timeout=0`);assert.equal((await bounded.json()).revision,current.revision);
     assert.equal((await fetch(`${h.base}/api/games/${c.game.id}/events`,{headers:{'last-event-id':'NaN'}})).status,400);
     assert.equal((await fetch(`${h.base}/api/games/${c.game.id}/wait?after=-1`)).status,400);
-    assert.equal((await fetch(`${h.base}/api/games/${c.game.id}/events`,{headers:{origin:'https://evil.example'}})).status,403);
+    assert.equal((await fetch(`${h.base}/api/games/${c.game.id}/events`,{headers:{origin:'https://evil.example'}})).status,200,'read-only event stream is public');
   } finally {streams.forEach(stream=>stream.close());await h.close();s.close();}
 });
 
@@ -147,7 +148,7 @@ test('read-only invitation context scopes own Agent state and receipts, never cl
     for(const secret of [joined.seatToken,c.ownerToken,joinId,'未公开判词-plaintiff','未公开判词-defendant',seats.plaintiff.seatToken])assert.ok(!encoded.includes(secret));
     assert.equal(contextResponse.headers.get('referrer-policy'),'no-referrer');
     assert.equal((await fetch(`${h.base}/api/invitations/not-valid/context`)).status,404);
-    assert.equal((await fetch(url,{headers:{origin:'https://evil.example'}})).status,403);
+    assert.equal((await fetch(url,{headers:{origin:'https://evil.example'}})).status,200,'read-only invitation context is reachable cross-site');
     const other=create(s);assert.equal((await fetch(`${h.base}/api/games/${other.game.id}/agent`,{headers:{authorization:`Bearer ${joined.seatToken}`}})).status,403);
     const landing=await (await fetch(h.base+c.invitation.path)).text();for(const hint of ['MCP','HTTP','浏览器接力','courtAction','/context'])assert.ok(landing.includes(hint));
   } finally {await h.close();s.close();}

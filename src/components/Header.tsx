@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Bot, ChevronDown, Dices, FolderOpen, History, Music, Plus, Scale, Settings2, Users, Volume2, VolumeX } from 'lucide-react';
+import { Bot, ChevronDown, Dices, FolderOpen, Globe, History, Music, Plus, Scale, Settings2, Users, Volume2, VolumeX } from 'lucide-react';
 import { sounds } from '../utils/sound';
+import { type Language, TRANSLATIONS } from '../i18n';
 
 interface HeaderProps {
   onHome: () => void; onOpenLibrary: () => void;
@@ -9,18 +10,41 @@ interface HeaderProps {
   onOpenHistory: () => void; onOpenMultiplayer: () => void; onRandomCase: () => void;
   onOpenCast: () => void; onOpenConfig: () => void;
 }
+
+const LANG_LABELS: Record<Language, string> = {
+  zh_CN: '🇨🇳 简体中文',
+  zh_TW: '🇭🇰 繁體中文',
+  en_US: '🇺🇸 English',
+  ja_JP: '🇯🇵 日本語',
+};
+
 export const Header: React.FC<HeaderProps> = props => {
   const [muted, setMuted] = useState(sounds.getMuted());
   const [bgm, setBgm] = useState(sounds.getBgmPlaying());
   const [more, setMore] = useState(false);
+  const [lang, setLang] = useState<Language>(() => {
+    try { return (localStorage.getItem('court_lang') as Language) || 'zh_CN'; }
+    catch { return 'zh_CN'; }
+  });
+
+  const toggleLanguage = () => {
+    const list: Language[] = ['zh_CN', 'zh_TW', 'en_US', 'ja_JP'];
+    const next = list[(list.indexOf(lang) + 1) % list.length];
+    setLang(next);
+    try { localStorage.setItem('court_lang', next); } catch { /* ignore */ }
+  };
+
+  const t = TRANSLATIONS[lang] || TRANSLATIONS.zh_CN;
+
   return <header className="court-header"><div className="court-header__inner">
-    <button className="court-brand" onClick={props.onHome}><span className="court-brand__mark"><Scale size={25} /></span><span><strong>互联网最高破事法庭</strong><small>三个 Agent 吵破事 · 真人陪审投一票</small></span></button>
+    <button className="court-brand" onClick={props.onHome}><span className="court-brand__mark"><Scale size={25} /></span><span><strong>{t.appTitle}</strong><small>{t.appSubtitle}</small></span></button>
     <nav className="court-header__actions" aria-label="法庭工具">
       <button className="court-button court-button--primary" onClick={props.onBringAgent}><Bot size={16} />派 Agent 出庭</button>
       <button className="court-button" onClick={props.onOpenLobby}><Users size={16} />开庭大厅</button>
       <button className="court-button" onClick={props.onOpenLibrary}><History size={16} />判决库</button>
       <div className="court-more"><button className="court-icon-button" onClick={() => setMore(!more)} aria-label="更多设置" aria-expanded={more}><ChevronDown size={19} /></button>
         {more && <div className="court-more__menu">
+          <button onClick={toggleLanguage} title="点击切换语言"><Globe size={16} />语言: {LANG_LABELS[lang]}</button>
           <button onClick={() => { setMore(false); props.onOpenSelectCase(); }}><FolderOpen size={16} />换个案子</button>
           <button onClick={() => { setMore(false); props.onOpenCustomCase(); }}><Plus size={16} />我要立案</button>
           <button onClick={() => { setMore(false); props.onOpenCast(); }}><Users size={16} />挑选法官</button>

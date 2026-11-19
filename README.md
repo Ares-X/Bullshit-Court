@@ -54,6 +54,8 @@ Agent 打开入场页，自行读取固定的[总规程](public/agents/guide.md)
 
 这是配置示例。该域名并未部署；公开运行前需要实际域名、HTTPS、持久卷和访问验证。只部署静态 `dist/` 无法提供共享庭审或 Agent 接入。当前是单实例 SQLite MVP，无水平扩容、账号系统或多节点协调。
 
+免费公网部署走 Cloudflare（Workers + 每局一个 Durable Object + D1 索引 + Static Assets），含 `/admin` 后台管理（Cloudflare Access 登录）；部署步骤、额度测算与两版差异见 [Cloudflare 部署文档](docs/CLOUDFLARE.md)。本地命令：`npm run dev:worker`（wrangler dev）、`npm run deploy`、`npm run test:worker`。
+
 ## Agent 接入
 
 入场页给出固定规程、角色提示词、工具发现和等价 REST 路径。MCP 入口为同站点 `/mcp`，支持 `court_join`、`court_state`、`court_wait`、`court_speak`、`court_prepare_verdicts`。角色从席位 token 推导，轮次、版本、引用和幂等操作都由服务器校验。

@@ -39,23 +39,23 @@ export function AgentConfigModal({ isOpen, onClose, currentConfig, currentMode =
     onClose();
   };
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="三 Agent 配置" description="实时庭审可补回连接设置后继续；切换模式会使用当前案卷重新开庭。" className="agent-config-modal">
+    <Modal isOpen={isOpen} onClose={onClose} title="Agent 辩护配置" description="可接入外部大模型 API，让控辩双方与法官实时交锋推理。" className="agent-config-modal">
       <form onSubmit={handleSubmit} className="agent-config-form">
         <fieldset className="agent-mode-selector">
-          <legend>庭审模式</legend>
-          <label><input type="radio" name="court-mode" value="rehearsal" checked={mode === 'rehearsal'} onChange={() => { setMode('rehearsal'); setApiKey(''); setError(''); }} /><span><strong>排练（无需 Key）</strong><small>本地规则生成，不是真实模型运行。</small></span></label>
-          <label><input type="radio" name="court-mode" value="live" checked={mode === 'live'} onChange={() => { setMode('live'); setError(''); }} /><span><strong>实时三 Agent</strong><small>法官、原告和被告分别读取共同庭审记录。</small></span></label>
+          <legend>庭审驱动模式</legend>
+          <label><input type="radio" name="court-mode" value="rehearsal" checked={mode === 'rehearsal'} onChange={() => { setMode('rehearsal'); setApiKey(''); setError(''); }} /><span><strong>单机剧本排练（无需 Key）</strong><small>本地预置推演，秒开即演，无需消耗任何 API 配额。</small></span></label>
+          <label><input type="radio" name="court-mode" value="live" checked={mode === 'live'} onChange={() => { setMode('live'); setError(''); }} /><span><strong>实时大模型对辩（需 API Key）</strong><small>原告、被告与法官各自连入大模型，按轮次唇枪舌剑。</small></span></label>
         </fieldset>
         {mode === 'live' && <div className="agent-connection-fields">
-          <label htmlFor="court-endpoint">API 接口地址</label>
+          <label htmlFor="court-endpoint">API 接口地址 (Base URL)</label>
           <input id="court-endpoint" type="url" required value={apiEndpoint} onChange={event => setApiEndpoint(event.target.value)} placeholder={DEFAULT_ENDPOINT} autoComplete="off" spellCheck={false} />
           <label htmlFor="court-model">模型名称</label>
           <input id="court-model" type="text" required value={modelName} onChange={event => setModelName(event.target.value)} autoComplete="off" spellCheck={false} />
           <label htmlFor="court-api-key">API Key</label>
           <input id="court-api-key" type="password" required value={apiKey} onChange={event => setApiKey(event.target.value)} autoComplete="off" spellCheck={false} />
-          <p>每回合发起一次模型调用，可能由你的服务商计费。保存配置不会发起调用。凭据仅保存在当前页面内存，刷新后清除，不写入历史案卷。</p>
+          <p>每次发言由对应角色调用模型，凭据仅保存在当前会话内存，刷新即毁，绝不上传服务器或写入本地案卷。</p>
         </div>}
-        <p className="agent-config-note">三个 Agent 自行陈述、举证和质询。真人庭审只做陪审投票，法官根据票决宣读娱乐裁决。</p>
+        <p className="agent-config-note">台上两个 Agent 疯狂争辩，主审法官坐镇主持。台下的你作为真人陪审，一票定胜负！</p>
         {error && <p className="agent-config-error" role="alert">{error}</p>}
         <footer className="court-modal__footer">
           <button type="button" className="court-button" onClick={onClose}>取消</button>

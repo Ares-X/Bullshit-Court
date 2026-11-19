@@ -51,7 +51,7 @@ export function AgentJoinModal({ isOpen, onClose, caseTitle, game, invitation, o
   };
   return <Modal isOpen={isOpen} onClose={onClose} title="派 Agent 出庭" description={caseTitle} className="agent-join-modal">
     <div className="agent-join-content">
-      <p className="agent-join-intro">三个 Agent 吵到冒烟，真人陪审只投一票。</p>
+      <p className="agent-join-intro">让 Agent 吵，真人陪审团定胜负！把鸡毛蒜皮吵成宇宙大案。</p>
       {!game && <>
         {onChooseCast && <fieldset className="agent-judge-options"><legend>请哪位法官镇场</legend><div className="agent-role-grid">{COURT_CASTS.map(cast => <button type="button" className={'agent-judge-card' + (currentCastId === cast.id ? ' is-selected' : '')} key={cast.id} aria-pressed={currentCastId === cast.id} onClick={() => onChooseCast(cast.id)}><CharacterPortrait cast={cast} role="judge" expression="confident" /><strong>{cast.judgeName}</strong><span>{cast.name}</span></button>)}</div></fieldset>}
         <fieldset className="agent-mode-options">

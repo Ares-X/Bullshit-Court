@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local `wrangler dev`. NEVER commit the real .dev.vars.
+# Any long random string works for the visitor secret:
+COURT_VISITOR_SECRET=dev-only-change-me
+# Local admin UI bypass for wrangler dev (header x-court-admin-token). Leave
+# unset in production and use Cloudflare Access instead.
+COURT_ADMIN_DEV_TOKEN=dev-admin-token
+# Production admin auth goes through Cloudflare Access (set via secrets):
+#   COURT_ACCESS_TEAM=your-team   (from <team>.cloudflareaccess.com)
+#   COURT_ACCESS_AUD=...          (Access application AUD tag)
