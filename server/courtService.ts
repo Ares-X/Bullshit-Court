@@ -3,8 +3,9 @@ import { randomBytes, createHash } from 'node:crypto';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { applyExternalCourtRuling, applyExternalCourtTurn, castJuryVote, createCourtSession, rehearsalTurn, validateCourtSession } from '../src/utils/courtRuntime';
+import { toGameCard } from '../src/utils/gameCard';
 import type { CourtRole, CourtSession } from '../src/types';
-import type { AgentState, AgentTurnInput, CreateGameInput, CreateGameResult, GameInvitation, JuryWinner, PrepareVerdictsInput, PublicGame, PublicSeat, JudgmentPage, InvitationContext } from '../src/types/platform';
+import type { AgentState, AgentTurnInput, CreateGameInput, CreateGameResult, GameCard, GameInvitation, JuryWinner, PrepareVerdictsInput, PublicGame, PublicSeat, JudgmentPage, InvitationContext } from '../src/types/platform';
 
 const ROLES: CourtRole[] = ['judge', 'plaintiff', 'defendant'];
 const DAY = 24 * 60 * 60 * 1000;
@@ -173,7 +174,7 @@ export class CourtService {
     this.save(game,createKey ? {key:createKey,fingerprint,result} : undefined);
     return result;
   }
-  list(): PublicGame[] { this.open(); return [...this.games.values()].filter(g=>g.mode === 'multiplayer').sort((a,b) => b.createdAt-a.createdAt).slice(0,100).map(g => this.public(g)); }
+  list(): GameCard[] { this.open(); return [...this.games.values()].filter(g=>g.mode === 'multiplayer').sort((a,b) => b.createdAt-a.createdAt).slice(0,100).map(g => toGameCard(this.public(g))); }
   judgments(input: {query?: string; cursor?: string; limit?: number} = {}): JudgmentPage {
     this.open();
     if (input.query !== undefined && (typeof input.query !== 'string' || input.query.length > 200)) fail(400, 'INVALID_INPUT', '检索词过长。');
@@ -192,7 +193,7 @@ export class CourtService {
     const matches = [...this.games.values()].filter(game => game.mode === 'multiplayer' && (game.session.status === 'completed' || game.outcome === 'unresolved'))
       .sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))
       .filter(game => !cursor || game.createdAt < cursor.createdAt || (game.createdAt === cursor.createdAt && game.id.localeCompare(cursor.id) < 0))
-      .map(game => this.public(game)).filter(game => !query || JSON.stringify(game.session).toLocaleLowerCase().includes(query));
+      .map(game => this.public(game)).filter(game => !query || JSON.stringify(game.session).toLocaleLowerCase().includes(query)).map(toGameCard);
     const games = matches.slice(0, limit), last = games.at(-1);
     return {games, ...(matches.length > limit && last ? {nextCursor: Buffer.from(JSON.stringify({createdAt:last.createdAt,id:last.id,query})).toString('base64url')} : {})};
   }

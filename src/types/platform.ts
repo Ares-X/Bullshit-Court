@@ -42,13 +42,29 @@ export interface AgentState {
   rolePromptPath: string;
   receipts: {clientActionId: string; kind: string; acceptedTurnId?: string; prepared?: boolean}[];
 }
+/** Slim listing projection: enough for lobby cards and judgment cards, no turn text. */
+export interface GameCard {
+  id: string;
+  mode: PlatformMode;
+  status: PublicGame['status'];
+  createdAt: number;
+  updatedAt: number;
+  title: string;
+  plaintiffName: string;
+  defendantName: string;
+  category?: string;
+  seats: Record<CourtRole, PublicSeat>;
+  jury: PublicGame['jury'];
+  turnCount: number;
+  ruling?: { winner: 'plaintiff' | 'defendant' | 'draw'; quote?: string; result: string };
+}
 export interface GameInvitation { ticket: string; role: CourtRole; path: string }
 export interface CreateGameInput { caseData: CaseData; role: CourtRole; mode?: PlatformMode; clientActionId?: string }
 export interface CreateGameResult { game: PublicGame; ownerToken: string; invitation: GameInvitation }
 export interface AgentTurnInput { turnId: string; revision: number; clientActionId: string; payload: unknown }
 export interface PrepareVerdictsInput { clientActionId: string; plaintiff: unknown; defendant: unknown; revision?: number }
 
-export interface JudgmentPage { games: PublicGame[]; nextCursor?: string }
+export interface JudgmentPage { games: GameCard[]; nextCursor?: string }
 export type InvitationContext = AgentState | {
   game: PublicGame; gameId: string; role: CourtRole; claimed: false; action: 'claim';
   guidePath: string; rolePromptPath: string; claimPath: string;

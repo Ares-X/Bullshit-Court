@@ -1,9 +1,9 @@
 import type { CourtRole } from '../types';
-import type { PublicGame } from '../types/platform';
+import type { GameCard } from '../types/platform';
 import { AGENT_ROLE_LABELS } from '../utils/agentInvite';
 
 interface CourtLobbyProps {
-  games: PublicGame[];
+  games: GameCard[];
   loading?: boolean;
   error?: string;
   onWatch: (gameId: string) => void;
@@ -11,7 +11,7 @@ interface CourtLobbyProps {
   onRefresh: () => void;
 }
 const roles: CourtRole[] = ['judge', 'plaintiff', 'defendant'];
-const statuses: Record<PublicGame['status'], string> = {
+const statuses: Record<GameCard['status'], string> = {
   'waiting-agents': '等 Agent 到齐', running: '正在开庭', 'waiting-jury': '等待真人陪审', completed: '已结案', unresolved: '陪审待决',
 };
 
@@ -22,11 +22,10 @@ export function CourtLobby({ games, loading = false, error, onWatch, onJoin, onR
     <div className="court-lobby-layout">
       <div className="court-lobby-games" aria-busy={loading}>
         {games.length === 0 ? <div className="court-lobby-empty"><h3>{loading ? '正在看看谁开庭了…' : '还没有公开开庭'}</h3>{!loading && <p>先带自己的 Agent 试一局，法槌已经擦亮了。</p>}</div> : games.map(game => {
-          const caseData = game.session.caseData;
           const canJoin = game.status === 'waiting-agents';
           return <article className="court-lobby-card" key={game.id}>
-            <div className="court-lobby-card-heading"><span className={`court-lobby-status court-lobby-status--${game.status}`}>{statuses[game.status]}</span><h3>{caseData.title}</h3></div>
-            <p className="court-lobby-parties"><span>{caseData.plaintiffName}</span><span aria-label="对阵">诉</span><span>{caseData.defendantName}</span></p>
+            <div className="court-lobby-card-heading"><span className={`court-lobby-status court-lobby-status--${game.status}`}>{statuses[game.status]}</span><h3>{game.title}</h3></div>
+            <p className="court-lobby-parties"><span>{game.plaintiffName}</span><span aria-label="对阵">诉</span><span>{game.defendantName}</span></p>
             <ul className="court-lobby-seats">{roles.map(role => {
               const seat = game.seats[role];
               const available = canJoin && (seat.status === 'open' || seat.status === 'reserved');

@@ -31,7 +31,7 @@ SSE 和 longpoll 已实现；主动向外发送的 webhook、操作系统推送�
 
 ## Cloudflare 免费服务的目标结构
 
-这是已核对官方文档后的迁移设计，尚未部署 Workers，也没有在项目添加 Wrangler 依赖。
+此设计已在 `worker/` 实现（wrangler 已加入开发依赖）；部署步骤、Access 后台配置与额度测算见 [Cloudflare 部署文档](CLOUDFLARE.md)。以下为原设计记录，结构与实现一致。
 
 1. **Worker + Static Assets** 托管游戏、固定角色提示词、像素素材、HTTP 和 MCP 路由，保持现有 URL 契约。
 2. **每场庭审一个 SQLite Durable Object** 拥有席位、轮次、事件、幂等回执、票数、私有判词和截止时间；房间通过 Object 的单一状态 owner 串行提交。复用纯 `courtRuntime`，替换当前 Node 文件 SQLite、全局 Map 和 Node HTTP 适配，不能把 `server/start.mjs` 原样上传当作已迁移。

@@ -67,7 +67,7 @@ export function createCourtSession(caseData: CaseData, mode: CourtMode = 'rehear
   const evidences = facts.evidences.map(validateEvidence);
   if (new Set(evidences.map(e => e.id)).size !== evidences.length) return stateError('证物编号必须唯一。');
   return {
-    version: 1, id: `court-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
+    version: 1, id: `court-${crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
     mode, caseData: facts, turns: [], evidences, interventions: [], pendingTurns: initialSchedule(),
     phase: 'opening', status: 'active', rulingRequested: false,
   };
@@ -247,7 +247,7 @@ async function generateLiveTurn(session: CourtSession, step: CourtScheduledTurn,
       headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: config.modelName, messages: liveMessages(session, step), temperature: 0.65, response_format: { type: 'json_object' } }) });
     if (!response.ok) throw new CourtRuntimeError('HTTP', `模型服务返回 HTTP ${response.status}，本轮未被接纳。`);
-    const body = await response.json();
+    const body = await response.json() as { choices?: { message?: { content?: unknown } }[] };
     const content = body?.choices?.[0]?.message?.content;
     if (typeof content !== 'string') return invalid('模型没有返回公开 JSON 发言。');
     let parsed: unknown;

@@ -36,8 +36,12 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
       if (closed) throw new CourtServiceError(503,'CLOSED','庭审服务已关闭。');
       const origin = options.publicBaseUrl ? new URL(options.publicBaseUrl).origin : url.origin;
       if (!options.publicBaseUrl && !['localhost','127.0.0.1','[::1]'].includes(url.hostname)) throw new CourtServiceError(403,'HOST','公开部署需要配置 COURT_PUBLIC_BASE_URL。');
-      if (req.headers.origin && req.headers.origin !== origin) throw new CourtServiceError(403,'ORIGIN','不接受跨站请求。');
-      if (req.headers['sec-fetch-site'] === 'cross-site') throw new CourtServiceError(403,'ORIGIN','不接受跨站请求。');
+      // Cross-site GET navigations (e.g. opening a /join link from a chat app) are legitimate;
+      // only state-changing requests need the same-origin guard.
+      if ((req.method || 'GET') !== 'GET') {
+        if (req.headers.origin && req.headers.origin !== origin) throw new CourtServiceError(403,'ORIGIN','不接受跨站请求。');
+        if (req.headers['sec-fetch-site'] === 'cross-site') throw new CourtServiceError(403,'ORIGIN','不接受跨站请求。');
+      }
       const method = req.method || 'GET';
       if (method === 'POST' && !req.headers['content-type']?.includes('application/json')) throw new CourtServiceError(415,'CONTENT_TYPE','请使用 application/json。');
       if (path === '/api/visitor' && method === 'GET') {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CaseData, CourtRole } from '../types';
-import type { GameInvitation, PlatformMode, PublicGame, JuryWinner } from '../types/platform';
+import type { GameCard, GameInvitation, PlatformMode, PublicGame, JuryWinner } from '../types/platform';
 import { newActionId, platformClient, publicGamePath } from '../utils/platformClient';
 
 const routeId = () => /^\/games\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname)?.[1];
@@ -10,7 +10,8 @@ const invitationsKey = (id: string) => 'internet-court:invitations:' + id;
 const validInvitation = (value: unknown): value is GameInvitation => {
   if (!value || typeof value !== 'object') return false;
   const item = value as GameInvitation;
-  return typeof item.ticket === 'string' && /^[A-Za-z0-9_-]+$/.test(item.ticket) && ['judge', 'plaintiff', 'defendant'].includes(item.role) && item.path === '/join/' + item.ticket;
+  // Worker tickets carry a "gameId.secret" prefix; legacy Node tickets are a single blob.
+  return typeof item.ticket === 'string' && /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)?$/.test(item.ticket) && ['judge', 'plaintiff', 'defendant'].includes(item.role) && item.path === '/join/' + item.ticket;
 };
 const restoreInvitations = (id: string): LocalInvitations => {
   const invitations: LocalInvitations = {};
@@ -39,7 +40,7 @@ export function useCourtPlatform() {
   const [game, setGame] = useState<PublicGame>();
   const gameRef = useRef(game);
   const watchedId = useRef(gameId);
-  const [games, setGames] = useState<PublicGame[]>([]);
+  const [games, setGames] = useState<GameCard[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string>();
   const [error, setError] = useState<string>();

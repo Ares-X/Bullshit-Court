@@ -1,5 +1,5 @@
 import type { CourtRole, CaseData } from '../types';
-import type { AgentState, AgentTurnInput, CreateGameResult, GameInvitation, PlatformMode, PrepareVerdictsInput, PublicGame, JuryWinner } from '../types/platform';
+import type { AgentState, AgentTurnInput, CreateGameResult, GameCard, GameInvitation, PlatformMode, PrepareVerdictsInput, PublicGame, JuryWinner } from '../types/platform';
 
 export class PlatformRequestError extends Error {
   constructor(message: string, public readonly status: number, public readonly code?: string) { super(message); this.name = 'PlatformRequestError'; }
@@ -23,14 +23,14 @@ export const platformClient = {
   judgments: (query = '', cursor?: string, limit = 12, signal?: AbortSignal) => {
     const params = new URLSearchParams({ query, limit: String(limit) });
     if (cursor) params.set('cursor', cursor);
-    return request<{ games: PublicGame[]; nextCursor?: string }>('/api/judgments?' + params, {}, signal);
+    return request<{ games: GameCard[]; nextCursor?: string }>('/api/judgments?' + params, {}, signal);
   },
   claim: (ticket: string, agentName: string, clientActionId: string, signal?: AbortSignal) =>
     request<{ seatToken: string; gameId: string; role: CourtRole; state: AgentState }>('/api/invitations/' + encodeURIComponent(ticket) + '/claim', { method: 'POST', body: JSON.stringify({ agentName, clientActionId }) }, signal),
   agentState: (id: string, seatToken: string, signal?: AbortSignal) => request<AgentState>('/api/games/' + encodeURIComponent(id) + '/agent', { headers: { Authorization: 'Bearer ' + seatToken } }, signal),
   agentTurn: (id: string, seatToken: string, input: AgentTurnInput, signal?: AbortSignal) => request<AgentState>('/api/games/' + encodeURIComponent(id) + '/turns', { method: 'POST', headers: { Authorization: 'Bearer ' + seatToken }, body: JSON.stringify(input) }, signal),
   agentVerdicts: (id: string, seatToken: string, input: PrepareVerdictsInput, signal?: AbortSignal) => request<AgentState>('/api/games/' + encodeURIComponent(id) + '/verdicts', { method: 'POST', headers: { Authorization: 'Bearer ' + seatToken }, body: JSON.stringify(input) }, signal),
-  list: (signal?: AbortSignal) => request<{ games: PublicGame[] }>('/api/games', {}, signal),
+  list: (signal?: AbortSignal) => request<{ games: GameCard[] }>('/api/games', {}, signal),
   get: (id: string, signal?: AbortSignal) => request<PublicGame>('/api/games/' + encodeURIComponent(id), {}, signal),
   create: (caseData: CaseData, role: CourtRole, mode: PlatformMode, clientActionId: string, signal?: AbortSignal) =>
     request<CreateGameResult>('/api/games', { method: 'POST', body: JSON.stringify({ caseData, role, mode, clientActionId }) }, signal),
