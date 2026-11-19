@@ -211,3 +211,404 @@
 .agent-mode-options label { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
 .agent-join-content { padding: 16px 24px 24px; }
 .agent-join-intro { font-size: 12px; color: var(--muted); margin: 0 0 14px; }
+
+/* Utilities & Animations */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.is-spinning {
+  animation: spin 1s linear infinite;
+}
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.speaking-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  margin-right: 6px;
+  box-shadow: 0 0 8px #22c55e;
+  vertical-align: middle;
+}
+.court-seat-invite {
+  margin-top: 6px;
+  width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 8px;
+  background: #172e39;
+  border: 1px dashed #4b6673;
+  border-radius: 6px;
+  color: #f3d9ae;
+  transition: all 0.15s;
+}
+.court-seat-invite:hover {
+  background: #264353;
+  border-color: var(--gold);
+  color: var(--gold);
+  transform: translateY(-1px);
+}
+
+/* Jury Vote Modal */
+.jury-modal .court-modal__content {
+  background: #15222d;
+  border: 2px solid #2e4453;
+  border-radius: 20px;
+}
+.jury-ballot {
+  padding: 24px 28px;
+  text-align: center;
+}
+.jury-ballot__icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  background: rgba(255, 201, 90, 0.15);
+  border: 2px solid var(--gold);
+  color: var(--gold);
+  display: grid;
+  place-items: center;
+  margin: 0 auto 16px;
+  box-shadow: 0 0 20px rgba(255, 201, 90, 0.2);
+}
+.jury-ballot h3 {
+  font-size: 20px;
+  font-family: 'ZCOOL KuaiLe', sans-serif;
+  color: var(--gold);
+  margin: 0 0 8px;
+}
+.jury-ballot > p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 520px;
+  margin: 0 auto 24px;
+}
+.jury-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.jury-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 22px 18px;
+  border-radius: 14px;
+  border: 2px solid transparent;
+  transition: transform 0.18s, box-shadow 0.18s;
+  cursor: pointer;
+}
+.jury-option:hover:not(:disabled) {
+  transform: translateY(-3px);
+}
+.jury-option--plaintiff {
+  background: #2d1a1b;
+  border-color: #8b3a32;
+  color: #ffc7bf;
+}
+.jury-option--plaintiff:hover:not(:disabled) {
+  border-color: #f27c70;
+  box-shadow: 0 8px 24px rgba(242, 124, 112, 0.25);
+}
+.jury-option--defendant {
+  background: #11282c;
+  border-color: #2b706d;
+  color: #bff3ee;
+}
+.jury-option--defendant:hover:not(:disabled) {
+  border-color: #75d5ce;
+  box-shadow: 0 8px 24px rgba(117, 213, 206, 0.25);
+}
+.jury-option[aria-pressed="true"] {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+.jury-option > span {
+  font-size: 11px;
+  letter-spacing: 2px;
+  font-weight: 800;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.jury-option strong {
+  font-size: 18px;
+  font-family: 'ZCOOL KuaiLe', sans-serif;
+}
+.jury-option p {
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.9;
+  margin: 4px 0;
+}
+.jury-option small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.3);
+}
+.jury-tally {
+  background: #0f1c24;
+  border: 1px solid #2a414f;
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.jury-tally p {
+  margin: 4px 0;
+}
+.jury-ballot__notice {
+  font-size: 12px;
+  color: #8fa2aa;
+  margin: 12px 0 0;
+}
+
+/* Cast Select Modal */
+.cast-select-modal .court-modal__content {
+  max-width: 840px;
+}
+.cast-select-modal__body {
+  padding: 18px 24px;
+}
+.expression-selector {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #223743;
+}
+.expression-selector button {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #172935;
+  border: 1px solid #334d5c;
+  color: #b7c8ce;
+  transition: all 0.15s;
+}
+.expression-selector button[aria-pressed="true"] {
+  background: var(--gold);
+  color: #080e15;
+  border-color: var(--gold);
+  box-shadow: 0 0 10px rgba(255, 201, 90, 0.3);
+}
+.cast-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+}
+.cast-card {
+  display: flex;
+  flex-direction: column;
+  background: #162631;
+  border: 2px solid #2b4250;
+  border-radius: 14px;
+  padding: 16px;
+  text-align: left;
+  transition: all 0.18s;
+  cursor: pointer;
+}
+.cast-card:hover {
+  border-color: #4b6b7f;
+  transform: translateY(-2px);
+}
+.cast-card--selected {
+  border-color: var(--gold);
+  background: #203543;
+  box-shadow: 0 6px 20px rgba(255, 201, 90, 0.15);
+}
+.cast-card__portraits {
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid #243b48;
+  margin-bottom: 12px;
+}
+.cast-card__role {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: #9cb1b8;
+}
+.cast-card__role .character-portrait {
+  width: 58px;
+  height: 58px;
+}
+.cast-card strong {
+  font-size: 15px;
+  color: var(--gold);
+  margin-bottom: 4px;
+}
+.cast-card__description {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 12px;
+  flex: 1;
+}
+.cast-card__status {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: #0f1b22;
+  color: #92aab2;
+}
+.cast-card--selected .cast-card__status {
+  background: var(--gold);
+  color: #080e15;
+}
+.court-modal__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  border-top: 1px solid #223743;
+  background: #13222c;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Agent Config Modal */
+.agent-config-modal .court-modal__content {
+  max-width: 620px;
+}
+.agent-config-form {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.agent-mode-selector {
+  border: 1px solid #2b4250;
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+.agent-mode-selector legend {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--gold);
+  padding: 0 6px;
+}
+.agent-mode-selector label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.agent-mode-selector label:hover {
+  background: #1b2f3d;
+}
+.agent-mode-selector input {
+  margin-top: 3px;
+  accent-color: var(--gold);
+}
+.agent-mode-selector span strong {
+  display: block;
+  font-size: 13px;
+  color: var(--paper);
+}
+.agent-mode-selector span small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.agent-connection-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #0f1c24;
+  border: 1px solid #283e4c;
+  border-radius: 12px;
+  padding: 16px;
+}
+.agent-connection-fields label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #c4d4d9;
+}
+.agent-connection-fields input {
+  background: #162631;
+  border: 1px solid #334c5b;
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--paper);
+  font-size: 12px;
+}
+.agent-connection-fields input:focus {
+  border-color: var(--gold);
+  outline: none;
+}
+.agent-connection-fields p {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #8ca1a8;
+  margin: 6px 0 0;
+}
+.agent-config-note {
+  font-size: 11px;
+  color: #92a7ae;
+  line-height: 1.7;
+  margin: 0;
+}
+.agent-config-error {
+  background: #471d1d;
+  border: 1px solid #8e3838;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #fca5a5;
+  margin: 0;
+}
+.legacy-record {
+  padding: 24px;
+  color: var(--paper);
+}
+.legacy-record h3 {
+  color: var(--gold);
+  margin: 12px 0 8px;
+}
+.legacy-record p {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+.agent-seat-name {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--gold);
+  background: rgba(255, 201, 90, 0.1);
+  border: 1px solid rgba(255, 201, 90, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-top: 4px;
+}

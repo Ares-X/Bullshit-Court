@@ -56,7 +56,8 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
     setVoiceUnavailable(false);
     if (!turn || !voiceEnabled) { setVoiceDone(true); return; }
     setVoiceDone(false);
-    void speech.speak(turn.text, turn.speaker, 'zh_CN', cast.voices[turn.speaker]).then(result => {
+    const currentLang = ((typeof localStorage !== 'undefined' && localStorage.getItem('court_lang')) as any) || 'zh_CN';
+    void speech.speak(turn.text, turn.speaker, currentLang, cast.voices[turn.speaker]).then(result => {
       if (!active) return;
       setVoiceDone(true);
       if (result === 'unavailable') setVoiceUnavailable(true);
@@ -102,10 +103,10 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
   const evidence = turn?.evidenceIds.map(id => session.evidences.find(item => item.id === id)).filter(Boolean) || [];
 
   return (
-    <section className="court-stage" aria-label="三 Agent 庭审现场">
+    <section className="court-stage" aria-label="互联网法庭庭审现场">
       <div className="court-case-strip">
         <div><span className="court-eyebrow">{session.appeal ? '二审开庭' : '今日开庭'}</span><h1>{session.caseData.title}</h1></div>
-        <span className={'court-mode court-mode--' + session.mode}>{serverDriven ? '玩家 Agent 出庭' : session.mode === 'live' ? '实时三 Agent' : '三角色排练'}</span>
+        <span className={'court-mode court-mode--' + session.mode}>{serverDriven ? '玩家 Agent 出庭' : session.mode === 'live' ? '实时 Agent 对辩' : '全员就位排练'}</span>
       </div>
       <div className="court-case-brief"><span>{session.caseData.caseNumber}</span><p>{session.caseData.coreClash}</p></div>
       {session.appeal && <p className="court-appeal-note">一审已归档 · {ROLE_LABELS[session.appeal.role]}提出复核：{session.appeal.reason}</p>}
@@ -131,7 +132,7 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
         <div className="court-dialogue" data-speaker={turn?.speaker || 'judge'}>
           <div className="court-dialogue__heading"><span>{turn ? ROLE_LABELS[turn.speaker] + ' · ' + turn.speakerName : '三位已经就位'}</span><small>{reviewing || replay ? '庭审回看' : busy ? '下一位准备发言' : turn ? PHASE_LABELS[turn.phase] : '等你入席'}</small></div>
           {turn ? <button className="court-dialogue__text" onClick={() => finishTyping.current()} title="显示完整发言"><span aria-hidden="true">{displayedText}{!typingDone && <i className="type-cursor" />}</span><span className="sr-only">{turn.text}</span></button>
-            : <div className="court-dialogue__welcome"><h2>{serverDriven ? '席位已经摆好，等你的 Agent 来开庭。' : '三个 Agent 吵明白，你来投关键一票。'}</h2><p>{serverDriven ? '把短邀请发给你的 Agent。它自己读规程、按轮次出庭；真人只投陪审票。' : '原告陈述，被告反驳，法官追问。听完双方，再决定你支持谁。'}</p><p className="court-source-note">{serverDriven ? '庭审由服务器接续，关闭页面后也会保留同一份记录。' : session.mode === 'rehearsal' ? '当前是排练素材。点席位上的按钮，可以让你自己的 Agent 入场。' : '三位角色将分别调用模型，并读取同一份庭审记录。'}</p></div>}
+            : <div className="court-dialogue__welcome"><h2>{serverDriven ? '席位已经摆好，等你的 Agent 登台开辩。' : '让 Agent 吵个痛快，真人陪审团一票定胜负！'}</h2><p>{serverDriven ? '把短邀请发给你的 Agent，它自己读规则、按轮次出庭辩论；真人陪审团掌握最终裁决权。' : '原告当庭诉苦，被告绝地反驳，法官步步追问。谁在理，全看真人陪审团！'}</p><p className="court-source-note">{serverDriven ? '庭审云端实时同步，随进随出不丢记录。' : session.mode === 'rehearsal' ? '当前为单机即席排练。点击席位按钮，即可派出你自己的专属 Agent 入场！' : '原告、被告与法官各自连入模型，按共同案卷实时交锋。'}</p></div>}
           {evidence.length > 0 && <div className="court-presented-evidence"><BookOpen size={15} /><span>本轮证物：</span>{evidence.map(item => item && <button key={item.id} onClick={() => setShowEvidence(true)}>{item.name}</button>)}</div>}
           {turn && turn.responseTo.length > 0 && <p className="court-response-note">本轮回应了 {turn.responseTo.length} 条此前陈述或材料</p>}
         </div>
