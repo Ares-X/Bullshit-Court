@@ -10,10 +10,10 @@ import { pathToFileURL } from 'node:url';
 const dir = await mkdtemp(join(tmpdir(), 'court-room-'));
 try {
   await build({
-    stdin: { contents: "export { CourtRoom } from './worker/src/courtRoom.ts'; export { sha256 } from './worker/src/sha256.ts'; export { PRESET_CASES } from './src/data/presetCases.ts';", resolveDir: process.cwd(), loader: 'ts' },
+    stdin: { contents: "export { default as worker, CourtRoom } from './worker/src/index.ts'; export { sha256 } from './worker/src/sha256.ts'; export { PRESET_CASES } from './src/data/presetCases.ts';", resolveDir: process.cwd(), loader: 'ts' },
     bundle: true, format: 'esm', platform: 'neutral', logLevel: 'silent', outfile: join(dir, 'room.mjs'),
   });
-  const { CourtRoom, sha256, PRESET_CASES } = await import(pathToFileURL(join(dir, 'room.mjs')).href);
+  const { worker, CourtRoom, sha256, PRESET_CASES } = await import(pathToFileURL(join(dir, 'room.mjs')).href);
 
   // In-memory Durable Object storage and D1 stubs.
   const makeStorage = () => {
@@ -53,6 +53,39 @@ try {
     for (const sample of ['', 'abc', '互联网法庭'.repeat(50), String(Math.random())]) {
       assert.equal(sha256(sample), createHash('sha256').update(sample).digest('hex'));
     }
+  });
+
+  test('worker judgment pagination accepts a cursor for the same Chinese search', async () => {
+    let page = 0;
+    const DB = {
+      batch: async () => [],
+      prepare: () => ({ bind: () => ({ all: async () => {
+        const id = `case-${++page}`;
+        return { results: [{ id, created_at: 3 - page, card: JSON.stringify({ id }) }] };
+      } }) }),
+    };
+    const search = new URL('https://court/api/judgments');
+    search.searchParams.set('query', '火锅');
+    search.searchParams.set('limit', '1');
+    const first = await ok(await worker.fetch(new Request(search), { DB }));
+    assert.deepEqual(first.games, [{ id: 'case-1' }]);
+    assert.ok(first.nextCursor);
+    search.searchParams.set('cursor', first.nextCursor);
+    assert.deepEqual((await ok(await worker.fetch(new Request(search), { DB }))).games, [{ id: 'case-2' }]);
+    search.searchParams.set('query', '土豆');
+    const invalid = await worker.fetch(new Request(search), { DB });
+    assert.equal(invalid.status, 400);
+    await fails(invalid, 'INVALID_CURSOR');
+  });
+
+  test('worker admin responses stay closed with missing Access setup or authentication', async () => {
+    const url = 'https://court/api/admin/overview';
+    const disabled = await worker.fetch(new Request(url), {});
+    assert.equal(disabled.status, 501);
+    await fails(disabled, 'ADMIN_DISABLED');
+    const unauthenticated = await worker.fetch(new Request(url), { COURT_ACCESS_TEAM: 'court', COURT_ACCESS_AUD: 'audience' });
+    assert.equal(unauthenticated.status, 401);
+    await fails(unauthenticated, 'ADMIN_AUTH');
   });
 
   test('practice game: claim, ten rounds, asynchronous jury vote publishes the sealed verdict', async () => {

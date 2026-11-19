@@ -1,6 +1,13 @@
-name = "internet-court"
+name = "bullshit-court"
+account_id = "2a6440274b98eadaa5d57de0c52faece"
 main = "worker/src/index.ts"
 compatibility_date = "2025-09-01"
+workers_dev = false
+preview_urls = false
+
+[[routes]]
+pattern = "bullshitcourt.lol"
+custom_domain = true
 
 # One CourtRoom Durable Object per game. SQLite-backed classes are required on
 # the Workers free plan and keep storage local to the object.
@@ -12,13 +19,11 @@ class_name = "CourtRoom"
 tag = "v1"
 new_sqlite_classes = ["CourtRoom"]
 
-# Public lobby / judgment index. Create once with:
-#   npx wrangler d1 create internet-court-index
-# then paste the returned database_id below.
+# Public lobby and judgment index in the BullshitCourt account.
 [[d1_databases]]
 binding = "DB"
-database_name = "internet-court-index"
-database_id = "local-dev-placeholder"
+database_name = "bullshit-court-index"
+database_id = "72526d23-df14-4ee3-932a-903f8514cf3f"
 
 # Free-tier friendly per-IP limit on game creation (requests above the limit
 # get a 429 from the worker). Remove this block if you don't want it.
@@ -29,10 +34,9 @@ simple = { limit = 10, period = 60 }
 
 [assets]
 directory = "./dist"
+binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*", "/mcp", "/join/*"]
 
-[vars]
-# Optional canonical origin, e.g. "https://court.example.com". Leave unset to
-# derive it from the request. Secrets (COURT_VISITOR_SECRET, admin Access vars)
-# go in `wrangler secret put ...` or .dev.vars — never in this file.
+[secrets]
+required = ["COURT_VISITOR_SECRET"]

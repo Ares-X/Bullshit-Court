@@ -23,7 +23,7 @@ export class HttpError extends Error {
 export const fail = (status: number, code: string, message: string): never => { throw new HttpError(status, code, message); };
 
 const randomBytes = (length: number): Uint8Array => crypto.getRandomValues(new Uint8Array(length));
-const base64url = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+export const base64url = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 export const randomToken = (bytes = 24): string => base64url(randomBytes(bytes));
 /** Tokens carry their game id prefix so the worker can route without a global index. */

@@ -2,38 +2,34 @@
 
 Worker 版后端与本地 Node 版共存：`worker/` 是 Cloudflare 实现（Durable Object + D1 + Static Assets），`server/` 仍是本地 Node/SQLite 版，两者共享同一份 `src/utils/courtRuntime.ts` 规则引擎和同一套前端 `dist/`。
 
-## 首次部署
+## 生产部署
+
+`wrangler.toml` 指向 **BullshitCourt** 账户。Worker `bullshit-court` 在 `bullshitcourt.lol` 同站点提供前端、HTTP 和 MCP。D1 绑定 `DB` 指向 `bullshit-court-index`，已初始化 `games` 表和两个查询索引。SQLite Durable Object `CourtRoom` 的 `v1` 迁移随首次部署执行。部署 Worker 时 Cloudflare 会为自定义域名配置 DNS 和证书。
+
+Cloudflare Workers Builds 从 `Ares-X/Bullshit-Court` 的 `main` 分支拉取代码。提交到 `main` 后，Cloudflare 安装锁定的依赖，执行测试、Worker 类型检查和构建，最后用 Wrangler 发布。生产构建使用专用令牌，授权范围为 **BullshitCourt** 账户的 Workers Scripts Write 和 `bullshitcourt.lol` 的 Workers Routes Write。
+
+首次部署时，在 Workers Builds 中把 `COURT_VISITOR_SECRET` 配为加密构建密钥。发布命令通过 `--secrets-file` 将其写入 Worker 的运行时密钥。沿用相同值可保留已签发的访客会话。
 
 ```bash
-npm install
-npm run build                       # 产出 dist/（前端 + 静态 Agent 规程）
-
-npx wrangler d1 create internet-court-index
-# 把返回的 database_id 填进 wrangler.toml 的 [[d1_databases]]
-
-npx wrangler secret put COURT_VISITOR_SECRET   # 任意长随机串（openssl rand -hex 32）
-
-npm run deploy                      # = npm run build && wrangler deploy
+npm ci
+npm test
+npm run typecheck:worker
+npm run build
+npx wrangler deploy --dry-run
 ```
 
-- 表结构由 Worker 在首次查询时自动建（幂等）；也可手动 `npx wrangler d1 execute internet-court-index --remote --file=worker/schema.sql`。
-- 自定义域名在 Cloudflare Dashboard 的 Workers 路由里绑定；默认得到 `*.workers.dev`。
-- 每场庭审一个 SQLite Durable Object（`CourtRoom`），席位令牌和邀请票据自带 gameId 前缀，Worker 无需全局索引即可路由。
+如需重新初始化 D1 表结构，用拥有 D1 写权限的凭据执行 `npx wrangler d1 execute DB --remote --file=worker/schema.sql`。每场庭审一个 SQLite Durable Object（`CourtRoom`），席位令牌和邀请票据自带 gameId 前缀，Worker 无需全局索引即可路由。
 
 ## 后台管理（Cloudflare Access）
 
-1. Cloudflare Dashboard → Zero Trust → Access → Applications，新建 **Self-hosted** 应用。
-2. Application domain 填你的域名，路径 `/admin` 和 `/api/admin`（或直接 `domain: 域名` + path 规则）。
-3. 策略：Allow → Include → Emails（你的邮箱），动作选 Service Auth 或常规登录（邮箱 OTP 均可）。
-4. 在应用配置页复制 **AUD tag**（32 位十六进制）；Zero Trust 的团队名见 Overview（`<team>.cloudflareaccess.com` 里的 `<team>`）。
-5. 设置密钥并重新部署后生效：
+BullshitCourt 尚未启用 Access。启用后，通过一个 **Self-hosted** 应用保护 `bullshitcourt.lol` 上的 `/admin`、`/admin/*` 和 `/api/admin/*`。为管理员邮箱配置 Allow 策略，从该应用取得 **AUD tag**，并从 `<team>.cloudflareaccess.com` 取得团队名。首次部署时可将 `COURT_ACCESS_TEAM` 和 `COURT_ACCESS_AUD` 一并传入。为已部署的 Worker 设置时使用以下命令。
 
 ```bash
 npx wrangler secret put COURT_ACCESS_TEAM
 npx wrangler secret put COURT_ACCESS_AUD
 ```
 
-浏览器打开 `https://<你的域名>/admin`：Cloudflare Access 登录后即可使用。功能：
+管理员通过 Cloudflare Access 登录 `https://bullshitcourt.lol/admin` 后可以使用以下功能。
 
 - 总览：按模式/状态统计、今日新建。
 - 场次列表：含排练局与已隐藏场次，按案名/当事人/判词检索，状态筛选，游标分页。

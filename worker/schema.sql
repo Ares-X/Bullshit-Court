@@ -1,6 +1,6 @@
 -- D1 index schema. The worker also applies this automatically (idempotent) on
 -- first lobby/judgment query; this file exists for manual setup:
---   npx wrangler d1 execute internet-court-index --remote --file=worker/schema.sql
+--   npx wrangler d1 execute DB --remote --file=worker/schema.sql
 CREATE TABLE IF NOT EXISTS games (
   id TEXT PRIMARY KEY,
   mode TEXT NOT NULL,

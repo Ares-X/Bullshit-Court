@@ -3,7 +3,7 @@ import { handleCourtMcp } from './mcp';
 import { verifyAccess } from './access';
 import { sha256 } from './sha256';
 import { ensureSchema } from './d1';
-import { deriveGameId, errorResponse, fail, HttpError, jsonResponse, parseScopedToken, randomToken, type Env } from './env';
+import { base64url, deriveGameId, errorResponse, fail, HttpError, jsonResponse, parseScopedToken, randomToken, type Env } from './env';
 
 export { CourtRoom };
 
@@ -70,7 +70,7 @@ function decodeCursor(raw: string | null, query: string): { createdAt: number; i
   } catch { return fail(400, 'INVALID_CURSOR', '分页位置无效，请重新检索。'); }
 }
 const encodeCursor = (createdAt: number, id: string, query: string) =>
-  btoa(JSON.stringify({ createdAt, id, query })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  base64url(new TextEncoder().encode(JSON.stringify({ createdAt, id, query })));
 
 async function listJudgments(env: Env, url: URL): Promise<Response> {
   await ensureSchema(env);
@@ -200,10 +200,10 @@ export default {
       if (method !== 'GET' && method !== 'HEAD') sameOriginGuard(request, origin);
       if (method === 'POST' && !(request.headers.get('content-type') || '').includes('application/json')) return fail(415, 'CONTENT_TYPE', '请使用 application/json。');
 
-      if (path === '/api/visitor' && method === 'GET') return visitorResponse(env, request);
-      if (path === '/api/judgments' && method === 'GET') return listJudgments(env, url);
+      if (path === '/api/visitor' && method === 'GET') return await visitorResponse(env, request);
+      if (path === '/api/judgments' && method === 'GET') return await listJudgments(env, url);
       if (path === '/api/games') {
-        if (method === 'GET') return listLobby(env);
+        if (method === 'GET') return await listLobby(env);
         if (method === 'POST') {
           if (env.COURT_CREATE_LIMIT) {
             const check = await env.COURT_CREATE_LIMIT.limit({ key: request.headers.get('cf-connecting-ip') || 'unknown' });
@@ -219,7 +219,7 @@ export default {
         }
         return fail(405, 'METHOD', '不支持该方法。');
       }
-      if (path.startsWith('/api/admin/')) return adminApi(env, request, url);
+      if (path.startsWith('/api/admin/')) return await adminApi(env, request, url);
 
       const invitation = path.match(/^\/api\/invitations\/([^/]+)(\/(?:claim|context))?$/);
       if (invitation) {
