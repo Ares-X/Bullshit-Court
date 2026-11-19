@@ -10,6 +10,8 @@ Cloudflare Workers Builds 从 `Ares-X/Bullshit-Court` 的 `main` 分支拉取代
 
 首次部署时，在 Workers Builds 中把 `COURT_VISITOR_SECRET` 配为加密构建密钥。发布命令通过 `--secrets-file` 将其写入 Worker 的运行时密钥。沿用相同值可保留已签发的访客会话。
 
+内置主审使用 Worker 运行时密钥 `OPENROUTER_API_KEY`。固定池见 `worker/src/builtinJudge.ts`，OpenRouter 按池内顺序选可用型号，模型请求的输入、输出和单次价格上限均为 0。法官写错席位或胜方，本轮原地等待并轮换优先型号。没有配置密钥时，玩家仍可邀请自己的法官。Wrangler 本地开发只加载 `secrets.required` 中列出的变量，如需测内置主审，在本地配置副本中把 `OPENROUTER_API_KEY` 加入该列表，再从私有环境文件加载。
+
 ```bash
 npm ci
 npm test
@@ -22,21 +24,16 @@ npx wrangler deploy --dry-run
 
 ## 后台管理（Cloudflare Access）
 
-BullshitCourt 尚未启用 Access。启用后，通过一个 **Self-hosted** 应用保护 `bullshitcourt.lol` 上的 `/admin`、`/admin/*` 和 `/api/admin/*`。为管理员邮箱配置 Allow 策略，从该应用取得 **AUD tag**，并从 `<team>.cloudflareaccess.com` 取得团队名。首次部署时可将 `COURT_ACCESS_TEAM` 和 `COURT_ACCESS_AUD` 一并传入。为已部署的 Worker 设置时使用以下命令。
+启用 Zero Trust 后，为 `admin.bullshitcourt.lol` 创建覆盖整个主机的 **Self-hosted** 应用和指定邮箱的 Allow 策略，再把该主机绑定到同一个 Worker。运行时配置 `COURT_ADMIN_HOST=admin.bullshitcourt.lol`、`COURT_ACCESS_TEAM`（团队名）和 `COURT_ACCESS_AUD`（应用 Audience）。Worker 会校验 Access 票据，管理 API 只响应管理域名，原主站的 `/admin` 会跳到独立入口。
 
-```bash
-npx wrangler secret put COURT_ACCESS_TEAM
-npx wrangler secret put COURT_ACCESS_AUD
-```
-
-管理员通过 Cloudflare Access 登录 `https://bullshitcourt.lol/admin` 后可以使用以下功能。
+通过 Access 登录管理后台后可以使用以下功能。
 
 - 总览：按模式/状态统计、今日新建。
 - 场次列表：含排练局与已隐藏场次，按案名/当事人/判词检索，状态筛选，游标分页。
-- 场次详情：席位领取情况、陪审票明细、**两份私密条件判词**（仅管理员可见）、完整庭审记录。
+- 场次详情包含席位领取情况、陪审票明细和完整庭审记录。早期场次保存的条件判词仅管理员可见。
 - 操作：关闭投票（到票数立即结算，不足则未决）、作废隐藏/恢复展示、撤销未用邀请、重同步 D1 索引、彻底删除。
 
-本地 `wrangler dev` 不走 Access：复制 `.dev.vars.example` 为 `.dev.vars`，用 `COURT_ADMIN_DEV_TOKEN` + 界面里的"开发令牌"入口。**生产环境不要设置该变量。**
+本地后台测试可用 `COURT_ADMIN_DEV_TOKEN` 和界面里的开发令牌入口。使用 Wrangler 时，在本地配置副本的 `secrets.required` 中加上该变量。生产环境使用 Access。
 
 ## 免费额度（2026-11 查证，以官方页面为准）
 
@@ -47,14 +44,16 @@ npx wrangler secret put COURT_ACCESS_AUD
 | D1 | 500 万行读/天 + 10 万行写/天 + 5 GB | 只在状态迁移（创建/入场/封卷/结案/隐藏）写投影，不在每轮发言写 |
 | Static Assets | 免费 | 前端、像素素材、Agent 规程 |
 
-经验值：一场十轮三 Agent 庭审 ≈ 60–100 次 Worker 请求 + ~10 次 D1 写。陪审截止由 DO Alarm 触发，不再有常驻轮询。若 spectator 规模变大（长期 SSE 连接吃 GB-s），第二阶段把浏览器推送换成 WebSocket Hibernation（升级握手只计 1 次请求，休眠期不计时长）——接口已按可替换设计（`/wait` 与 `/events` 返回同一份快照契约）。
+此前十轮三 Agent 庭审约用 60–100 次 Worker 请求和约 10 次 D1 写。新场次第十轮封卷，由 DO Alarm 管理陪审截止。陪审产生多数时，服务端开放第十一轮，由原法官读票后宣判。外接法官可继续 `court_wait`，或在已登录 Codex CLI 的终端按[法官规程](../public/agents/roles/judge.md)启动本地接力。接力会私下保存席位凭证和原会话编号，封卷后等候陪审，随后以该编号恢复原会话。本地接力至多约每 30 秒发一次等待请求，由用户的终端运行。
+
+若 spectator 规模变大（长期 SSE 连接吃 GB-s），第二阶段可把浏览器推送换成 WebSocket Hibernation。升级握手计 1 次请求，休眠期不计时长。`/wait` 与 `/events` 返回同一份快照契约。
 
 ## 与 Node 版的差异
 
 | | Node（server/） | Worker（worker/） |
 | --- | --- | --- |
 | 状态权威 | 单进程内存 + SQLite 文件 | 每局一个 Durable Object |
-| 定时 | 1 秒 setInterval tick | DO Alarm（陪审截止） |
+| 定时 | 1 秒 setInterval tick | DO Alarm（陪审截止及内置法官轮次） |
 | 访客凭证 | DB 存储 + Map | 无状态 HMAC 签名 cookie（不落库） |
 | 大厅/判决库 | 全内存扫描 | D1 索引查询（索引丢失不丢对局，可后台"重同步"） |
 | 创建幂等 | 全局 create_receipts 表 | gameId 由 clientActionId 确定性派生，同编号必落同一房间 |
@@ -64,6 +63,6 @@ npx wrangler secret put COURT_ACCESS_AUD
 
 ## 已验证 / 未验证
 
-已验证（本地 `wrangler dev` 实测）：SPA 回退与静态资源、访客签名 cookie、创建幂等与确定性路由、领票→陪练自动推进→三轮发言→封卷→投票→条件判词发布、投票去重与幂等重放、大厅/判决库过滤（排练局与隐藏局不入公开库）、检索与游标分页、SSE 补帧、longpoll、`/join` 三种接入方式页面、MCP tools/list、管理端全操作与未授权拒绝。
+已验证（本地 `wrangler dev` 实测）：原短邀请领席、十轮封卷、三份独立测试陪审凭证锁票、原 Codex 法官跨进程恢复、旁听页推送第十一轮。自动化测试同时覆盖旧场次条件判词兼容、内置主审重试、投票及宣判幂等、管理域名边界。
 
 未验证：真实公网部署与跨互联网 Agent 客户端、Cloudflare Access 真实登录流（本地用开发令牌代替）、生产 D1 与 DO 配额表现、Turnstile 防刷（尚未接入，`COURT_CREATE_LIMIT` 每 IP 10 次/分是当前唯一护栏）。

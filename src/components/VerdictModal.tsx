@@ -61,7 +61,7 @@ export function VerdictModal({ isOpen, onClose, session, onStartAppeal, onPlayAg
     catch { setCopied(false); setCopyError('复制失败。下方已备好完整分享文字，可以手动全选复制。'); requestAnimationFrame(() => { fallbackRef.current?.focus(); fallbackRef.current?.select(); }); }
   };
   const button = 'inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-amber-50 disabled:opacity-50';
-  return <Modal isOpen={isOpen} onClose={onClose} title="本案判决书" description="全场真人陪审团公决结果已出，主审法官当庭盖章宣判！" className="court-verdict">
+  return <Modal isOpen={isOpen} onClose={onClose} title="本案判决书" description="票已点清，法槌落下。" className="court-verdict">
     {!ruling ? <p className="p-6 text-slate-700">本案尚未产生法官裁决。</p> : <>
       <div className="px-5 pt-5 flex flex-wrap gap-2">
         <button className={button} onClick={download} disabled={isExporting}><Download size={16} />{isExporting ? '正在生成完整判决书…' : '保存完整判决书'}</button>

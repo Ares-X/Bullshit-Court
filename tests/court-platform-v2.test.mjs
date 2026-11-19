@@ -12,10 +12,10 @@ const dir = await mkdtemp(join(tmpdir(), 'court-platform-v2-build-'));
 let api;
 try {
   const outfile = join(dir, 'backend.mjs');
-  await build({stdin:{contents:"export * from './server/courtService'; export * from './server/courtHttp'; export {rehearsalTurn,castJuryVote} from './src/utils/courtRuntime'; export {PRESET_CASES} from './src/data/presetCases';",resolveDir:process.cwd(),loader:'ts'},outfile,bundle:true,format:'esm',platform:'node',packages:'external',logLevel:'silent'});
+  await build({stdin:{contents:"export * from './server/courtService'; export * from './server/courtHttp'; export {rehearsalTurn} from './src/utils/courtRuntime'; export {PRESET_CASES} from './src/data/presetCases';",resolveDir:process.cwd(),loader:'ts'},outfile,bundle:true,format:'esm',platform:'node',packages:'external',logLevel:'silent'});
   api = await import(pathToFileURL(outfile).href);
 } finally { await rm(dir,{recursive:true,force:true}); }
-const {CourtService,createCourtHttpHandler,PRESET_CASES,rehearsalTurn,castJuryVote}=api;
+const {CourtService,createCourtHttpHandler,PRESET_CASES,rehearsalTurn}=api;
 let sequence=0;
 const unique=()=>`v2-${++sequence}`;
 const create=(s,mode='multiplayer',title='真实案卷')=>s.create({caseData:{...PRESET_CASES[0],title},role:'judge',mode});
@@ -25,12 +25,10 @@ function played(s,mode='multiplayer',title) {
   const c=create(s,mode,title); const joined={judge:claim(s,c.invitation)};
   if(mode==='multiplayer')for(const role of ['plaintiff','defendant']) joined[role]=claim(s,s.invite(c.game.id,{role}));
   while(s.get(c.game.id).currentRole)turn(s,joined[s.get(c.game.id).currentRole].seatToken);
-  const st=s.state(joined.judge.seatToken);
-  const verdict=winner=>({...rehearsalTurn(castJuryVote(st.game.session,winner),{role:'judge',phase:'verdict',interventionIds:[]}),text:`绝不提前泄露-${winner}`});
-  s.prepareVerdicts(joined.judge.seatToken,{revision:st.expectedRevision,clientActionId:unique(),plaintiff:verdict('plaintiff'),defendant:verdict('defendant')});
   return {...c,joined};
 }
 const vote=(s,id)=>s.vote(id,{...s.visitor(),winner:'plaintiff',clientActionId:unique()});
+const verdict=state=>({turnId:state.turnId,revision:state.expectedRevision,clientActionId:unique(),payload:rehearsalTurn(state.game.session,{role:'judge',phase:'verdict',interventionIds:[]})});
 async function host(s) {
   const handler=createCourtHttpHandler({service:s});
   const server=createServer((req,res)=>{void handler(req,res).then(handled=>{if(!handled){res.writeHead(404);res.end();}});});
@@ -57,6 +55,8 @@ test('public judgment HTTP library filters modes and lifecycle, searches, pagina
     const practice=played(s,'practice','只限排练');vote(s,practice.game.id);
     create(s); const waiting=played(s,'multiplayer','还在投票');
     const completed=played(s,'multiplayer','检索海豹'); for(let i=0;i<3;i++)vote(s,completed.game.id);
+    assert.deepEqual(s.judgments().games,[]);
+    s.speak(completed.joined.judge.seatToken,verdict(s.state(completed.joined.judge.seatToken)));
     const unresolved=played(s,'multiplayer','检索海豹'); now+=86400001;s.tick();
     const response=await fetch(h.base+'/api/judgments?query=检索海豹&limit=1');assert.equal(response.status,200);
     const first=await response.json();assert.equal(first.games.length,1);assert.ok(first.nextCursor);
@@ -71,7 +71,7 @@ test('public judgment HTTP library filters modes and lifecycle, searches, pagina
     assert.equal((await fetch(h.base+'/api/games',{method:'POST',headers:{origin:'https://evil.example','content-type':'application/json'},body:'{}'})).status,403,'cross-site POST stays blocked');
     const library=await (await fetch(h.base+'/api/judgments')).json();assert.equal(library.games.length,3,'also includes genuinely expired waiting jury, never the practice game or open seats');
     assert.ok(library.games.some(g=>g.id===waiting.game.id));
-    const encoded=JSON.stringify(library);assert.ok(!encoded.includes(completed.ownerToken));assert.ok(!encoded.includes(completed.joined.judge.seatToken));assert.ok(!encoded.includes('绝不提前泄露-defendant'));
+    const encoded=JSON.stringify(library);assert.ok(!encoded.includes(completed.ownerToken));assert.ok(!encoded.includes(completed.joined.judge.seatToken));assert.ok(!encoded.includes('consideredInterventionIds'));
     await h.close();h=undefined;s.close();s=new CourtService({storePath:path,now:()=>now,autoTick:false});h=await host(s);
     const restored=await (await fetch(h.base+'/api/judgments?query=检索海豹&limit=1&cursor='+first.nextCursor)).json();assert.deepEqual(restored,second);
     const context=await (await fetch(`${h.base}/api/invitations/${completed.invitation.ticket}/context`)).json();assert.equal(context.role,'judge');assert.equal(context.game.id,completed.game.id);assert.equal(context.roleFinished,true);assert.ok(!JSON.stringify(context).includes(completed.joined.judge.seatToken));
@@ -126,7 +126,7 @@ test('idle SSE sends a bounded heartbeat and service close ends its connection',
   } finally {stream?.close();await h.close();s.close();}
 });
 
-test('read-only invitation context scopes own Agent state and receipts, never claims or exposes seat credentials or sealed verdicts',async()=>{
+test('read-only invitation context scopes own Agent state and receipts, never claims or exposes credentials and delivers round 11 after the deciding vote',async()=>{
   const s=new CourtService({storePath:':memory:',autoTick:false});const h=await host(s);
   const post=(path,value,seatToken)=>fetch(h.base+path,{method:'POST',headers:{'content-type':'application/json',...(seatToken?{authorization:`Bearer ${seatToken}`}:{})},body:JSON.stringify(value)});
   try {
@@ -141,16 +141,20 @@ test('read-only invitation context scopes own Agent state and receipts, never cl
     let ownAction;
     while(s.get(c.game.id).currentRole){const r=s.get(c.game.id).currentRole;const st=s.state(seats[r].seatToken);const action={turnId:st.turnId,revision:st.expectedRevision,clientActionId:unique(),payload:rehearsalTurn(st.game.session,st.game.session.pendingTurns[0])};if(r==='plaintiff')ownAction=action.clientActionId;const response=await post(`/api/games/${c.game.id}/turns`,action,seats[r].seatToken);assert.equal(response.status,200);}
     const plaintiff=await (await fetch(`${h.base}/api/invitations/${tickets.plaintiff.ticket}/context`)).json();assert.equal(plaintiff.role,'plaintiff');assert.ok(plaintiff.receipts.some(r=>r.clientActionId===ownAction));
-    const judgeBefore=await (await fetch(url)).json();assert.equal(judgeBefore.action,'prepare_verdicts');assert.ok(!judgeBefore.receipts.some(r=>r.clientActionId===ownAction));
-    const make=winner=>({...rehearsalTurn(castJuryVote(judgeBefore.game.session,winner),{role:'judge',phase:'verdict',interventionIds:[]}),text:`未公开判词-${winner}`});
-    const sealed=await post(`/api/games/${c.game.id}/verdicts`,{clientActionId:unique(),revision:judgeBefore.expectedRevision,plaintiff:make('plaintiff'),defendant:make('defendant')},joined.seatToken);assert.equal(sealed.status,200);
-    const contextResponse=await fetch(url);const context=await contextResponse.json();assert.equal(context.roleFinished,true);const encoded=JSON.stringify(context);
-    for(const secret of [joined.seatToken,c.ownerToken,joinId,'未公开判词-plaintiff','未公开判词-defendant',seats.plaintiff.seatToken])assert.ok(!encoded.includes(secret));
+    const judgeBefore=await (await fetch(url)).json();assert.equal(judgeBefore.action,'wait');assert.equal(judgeBefore.roleFinished,false);assert.ok(!judgeBefore.receipts.some(r=>r.clientActionId===ownAction));
+    for(let i=0;i<3;i++)vote(s,c.game.id);
+    const contextResponse=await fetch(url);const context=await contextResponse.json();
+    assert.equal(context.action,'submit_verdict');assert.equal(context.roleFinished,false);assert.equal(context.game.session.ruling,undefined);
+    assert.equal(context.game.jury.plaintiffVotes,3);
+    const encoded=JSON.stringify(context);
+    for(const secret of [joined.seatToken,c.ownerToken,joinId,seats.plaintiff.seatToken])assert.ok(!encoded.includes(secret));
+    const published=await post(`/api/games/${c.game.id}/turns`,verdict(context),joined.seatToken);assert.equal(published.status,200);
+    assert.equal((await (await fetch(url)).json()).roleFinished,true);
     assert.equal(contextResponse.headers.get('referrer-policy'),'no-referrer');
     assert.equal((await fetch(`${h.base}/api/invitations/not-valid/context`)).status,404);
     assert.equal((await fetch(url,{headers:{origin:'https://evil.example'}})).status,200,'read-only invitation context is reachable cross-site');
     const other=create(s);assert.equal((await fetch(`${h.base}/api/games/${other.game.id}/agent`,{headers:{authorization:`Bearer ${joined.seatToken}`}})).status,403);
-    const landing=await (await fetch(h.base+c.invitation.path)).text();for(const hint of ['MCP','HTTP','浏览器接力','courtAction','/context'])assert.ok(landing.includes(hint));
+    const landing=await (await fetch(h.base+c.invitation.path)).text();for(const hint of ['MCP','HTTP','浏览器接力','courtAction','/context','submit_verdict'])assert.ok(landing.includes(hint));
   } finally {await h.close();s.close();}
 });
 

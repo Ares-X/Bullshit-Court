@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, Check, Gavel, LoaderCircle, Pause, Play, RotateCcw, Scale, Volume2, VolumeX, Vote } from 'lucide-react';
 import type { CourtRole, CourtSession, CourtTurn } from '../types';
-import type { PublicSeat } from '../types/platform';
+import type { PublicGame } from '../types/platform';
 import { getCourtRoleProfile, getNextCourtRole } from '../utils/courtRuntime';
 import { getCourtCast, getCourtExpression } from '../data/courtCasts';
 import { speech } from '../utils/speech';
@@ -14,13 +14,19 @@ interface CourtStageProps {
   onAutoPlayingChange: (playing: boolean) => void; onAdvance: () => void;
   onOpenVote: () => void; onOpenCast: () => void; onOpenAgents: () => void;
   onOpenVerdict: () => void; guest?: boolean; replay?: boolean;
-  serverDriven?: boolean; seats?: Record<CourtRole, PublicSeat>; onJoinRole?: (role: CourtRole) => void;
+  platformGame?: PublicGame; onJoinRole?: (role: CourtRole) => void;
 }
 const PHASE_LABELS = { opening: '开庭', statements: '双方陈述', inquiry: '法官追问', evidence: '当庭举证', deliberation: '陪审表决', verdict: '法官宣判' };
 const ROLE_LABELS: Record<CourtRole, string> = { plaintiff: '原告', judge: '法官', defendant: '被告' };
 const ORDER: CourtRole[] = ['plaintiff', 'judge', 'defendant'];
 
-export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, autoPlaying, onAutoPlayingChange, onAdvance, onOpenVote, onOpenCast, onOpenAgents, onOpenVerdict, guest = false, replay = false, serverDriven = false, seats, onJoinRole }) => {
+export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, autoPlaying, onAutoPlayingChange, onAdvance, onOpenVote, onOpenCast, onOpenAgents, onOpenVerdict, guest = false, replay = false, platformGame, onJoinRole }) => {
+  const serverDriven = !!platformGame;
+  const seats = platformGame?.seats;
+  const publicStatus = platformGame?.status;
+  const juryWinner = platformGame?.jury.outcome;
+  const juryOpen = platformGame ? publicStatus === 'waiting-jury' && juryWinner === 'pending' : session.status === 'awaiting-ruling';
+  const verdictPending = publicStatus === 'waiting-verdict' || (publicStatus === 'waiting-jury' && (juryWinner === 'plaintiff' || juryWinner === 'defendant'));
   const [viewIndex, setViewIndex] = useState<number | null>(replay || serverDriven ? 0 : null);
   const [displayedText, setDisplayedText] = useState('');
   const [voiceEnabled, setVoiceEnabled] = useState(speech.getVoiceEnabled());
@@ -30,6 +36,7 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
   const [showTranscript, setShowTranscript] = useState(false);
   const [speed, setSpeed] = useState(1);
   const finishTyping = useRef<() => void>(() => {});
+  const previousPublicStatus = useRef(publicStatus);
   const lastIndex = session.turns.length - 1;
   const displayedIndex = Math.min(viewIndex ?? lastIndex, lastIndex);
   const turn: CourtTurn | undefined = session.turns[displayedIndex];
@@ -40,6 +47,14 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
   const typingDone = displayedText === text;
 
   useEffect(() => { setViewIndex(replay || serverDriven ? 0 : null); }, [session.id, replay, serverDriven]);
+  useEffect(() => {
+    const previous = previousPublicStatus.current;
+    previousPublicStatus.current = publicStatus;
+    if (previous && previous !== 'completed' && publicStatus === 'completed') {
+      setViewIndex(lastIndex);
+      onAutoPlayingChange(true);
+    }
+  }, [publicStatus, lastIndex, onAutoPlayingChange]);
   useEffect(() => {
     setDisplayedText('');
     let position = 0;
@@ -81,25 +96,25 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
       const timer = window.setTimeout(() => { onAutoPlayingChange(false); onOpenVerdict(); }, Math.max(1800, text.length * 30) / speed);
       return () => window.clearTimeout(timer);
     }
-    if (session.status === 'awaiting-ruling') {
+    if (juryOpen) {
       const timer = window.setTimeout(() => { onAutoPlayingChange(false); onOpenVote(); }, Math.max(1800, text.length * 30) / speed);
       return () => window.clearTimeout(timer);
     }
     if (guest || serverDriven) return;
     const timer = window.setTimeout(onAdvance, text ? Math.max(1700, text.length * 44) / speed : 220);
     return () => window.clearTimeout(timer);
-  }, [autoPlaying, busy, error, typingDone, voiceDone, reviewing, displayedIndex, text, speed, replay, session.status, guest, serverDriven, onAdvance, onAutoPlayingChange, onOpenVote, onOpenVerdict]);
+  }, [autoPlaying, busy, error, typingDone, voiceDone, reviewing, displayedIndex, text, speed, replay, session.status, juryOpen, guest, serverDriven, onAdvance, onAutoPlayingChange, onOpenVote, onOpenVerdict]);
 
   const showPrevious = () => { onAutoPlayingChange(false); setViewIndex(Math.max(0, displayedIndex - 1)); };
   const showNext = () => {
     if (!typingDone) { finishTyping.current(); return; }
     if (reviewing) { setViewIndex(displayedIndex + 1); return; }
     setViewIndex(null);
-    if (session.status === 'awaiting-ruling') onOpenVote();
+    if (juryOpen || verdictPending) onOpenVote();
     else if (session.status === 'completed') onOpenVerdict();
     else if (!guest && !replay && !serverDriven) onAdvance();
   };
-  const activePhase = turn?.phase || session.phase;
+  const activePhase = !reviewing && verdictPending ? 'verdict' : !reviewing && juryOpen ? 'deliberation' : turn?.phase || session.phase;
   const evidence = turn?.evidenceIds.map(id => session.evidences.find(item => item.id === id)).filter(Boolean) || [];
 
   return (
@@ -111,7 +126,7 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
       <div className="court-case-brief"><span>{session.caseData.caseNumber}</span><p>{session.caseData.coreClash}</p></div>
       {session.appeal && <p className="court-appeal-note">一审已归档 · {ROLE_LABELS[session.appeal.role]}提出复核：{session.appeal.reason}</p>}
       <nav className="court-phases" aria-label="庭审进程">
-        {Object.entries(PHASE_LABELS).map(([phase, label], index) => <span key={phase} className={activePhase === phase || (phase === 'deliberation' && session.status === 'awaiting-ruling') ? 'is-current' : ''} aria-current={activePhase === phase ? 'step' : undefined}><i>{index + 1}</i>{label}</span>)}
+        {Object.entries(PHASE_LABELS).map(([phase, label], index) => <span key={phase} className={activePhase === phase ? 'is-current' : ''} aria-current={activePhase === phase ? 'step' : undefined}><i>{index + 1}</i>{label}</span>)}
       </nav>
       <div className="court-theatre">
         <div className="court-theatre__sign"><Scale size={20} /><span>小事也要说个明白</span><Scale size={20} /></div>
@@ -124,13 +139,13 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
             return <div className={'court-actor court-actor--' + role + (active ? ' is-speaking' : '')} key={role}>
               <div className="court-actor__cue">{busy && !reviewing && nextRole === role ? <><LoaderCircle size={13} className="is-spinning" />正在斟酌</> : active ? <><span className="speaking-dot" />{ROLE_LABELS[role]}发言</> : role === 'judge' ? '主持审理' : '本人出庭'}</div>
               <CharacterPortrait role={role} cast={cast} expression={getCourtExpression(emotion, active && !typingDone)} label={profile.name} />
-              <div className="court-actor__bench"><span>{ROLE_LABELS[role]}席</span><strong>{profile.name}</strong>{seats?.[role] && <small>{seats[role].source === 'practice' ? '系统陪练' : seats[role].status === 'claimed' ? seats[role].agentName || '玩家 Agent' : '等待玩家 Agent'}</small>}</div>
+              <div className="court-actor__bench"><span>{ROLE_LABELS[role]}席</span><strong>{profile.name}</strong>{seats?.[role] && <small>{seats[role].source === 'practice' ? '系统陪练' : seats[role].source === 'builtin' ? '内置主审' : seats[role].status === 'claimed' ? seats[role].agentName || '玩家 Agent' : '等待玩家 Agent'}</small>}</div>
               {onJoinRole && (!serverDriven || seats?.[role].status === 'open' || seats?.[role].status === 'reserved') && <button className="court-seat-invite" onClick={() => onJoinRole(role)}>让我的 Agent 当{ROLE_LABELS[role]}</button>}
             </div>;
           })}
         </div>
         <div className="court-dialogue" data-speaker={turn?.speaker || 'judge'}>
-          <div className="court-dialogue__heading"><span>{turn ? ROLE_LABELS[turn.speaker] + ' · ' + turn.speakerName : '三位已经就位'}</span><small>{reviewing || replay ? '庭审回看' : busy ? '下一位准备发言' : turn ? PHASE_LABELS[turn.phase] : '等你入席'}</small></div>
+          <div className="court-dialogue__heading"><span>{turn ? ROLE_LABELS[turn.speaker] + ' · ' + turn.speakerName : '三位已经就位'}</span><small>{reviewing || replay ? '庭审回看' : busy ? '下一位准备发言' : turn ? PHASE_LABELS[activePhase] : '等你入席'}</small></div>
           {turn ? <button className="court-dialogue__text" onClick={() => finishTyping.current()} title="显示完整发言"><span aria-hidden="true">{displayedText}{!typingDone && <i className="type-cursor" />}</span><span className="sr-only">{turn.text}</span></button>
             : <div className="court-dialogue__welcome"><h2>{serverDriven ? '席位已经摆好，等你的 Agent 登台开辩。' : '让 Agent 吵个痛快，真人陪审团一票定胜负！'}</h2><p>{serverDriven ? '把短邀请发给你的 Agent，它自己读规则、按轮次出庭辩论；真人陪审团掌握最终裁决权。' : '原告当庭诉苦，被告绝地反驳，法官步步追问。谁在理，全看真人陪审团！'}</p><p className="court-source-note">{serverDriven ? '庭审云端实时同步，随进随出不丢记录。' : session.mode === 'rehearsal' ? '当前为单机即席排练。点击席位按钮，即可派出你自己的专属 Agent 入场！' : '原告、被告与法官各自连入模型，按共同案卷实时交锋。'}</p></div>}
           {evidence.length > 0 && <div className="court-presented-evidence"><BookOpen size={15} /><span>本轮证物：</span>{evidence.map(item => item && <button key={item.id} onClick={() => setShowEvidence(true)}>{item.name}</button>)}</div>}
@@ -156,11 +171,12 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
           <button className="court-button" onClick={() => setShowTranscript(!showTranscript)} aria-expanded={showTranscript}>庭审记录</button>
         </div>
       </div>
-      {session.status === 'awaiting-ruling' && (!serverDriven || !reviewing) && <div className="court-jury-call"><Vote size={25} /><div><strong>双方已经吵得面红耳赤！全网陪审官，请决断！</strong><p>控辩双方均已亮出底牌，你的正义一票将直接决定最终裁决！</p></div><button className="court-button court-button--primary" onClick={onOpenVote}>进入陪审投票<ArrowRight size={16} /></button></div>}
-      {session.juryVote && session.status !== 'completed' && <div className="court-jury-call"><Check size={22} /><p>陪审意志已送达：力挺{ROLE_LABELS[session.juryVote]}！法官即将落槌宣判！</p>{!autoPlaying && !guest && !serverDriven && <button className="court-button court-button--primary" onClick={onAdvance} disabled={busy}><Gavel size={16} />听法官宣判</button>}</div>}
+      {juryOpen && (!serverDriven || !reviewing) && <div className="court-jury-call"><Vote size={25} /><div><strong>双方已经吵得面红耳赤！全网陪审官，请决断！</strong><p>控辩双方均已亮出底牌，你的正义一票将直接决定最终裁决！</p></div><button className="court-button court-button--primary" onClick={onOpenVote}>进入陪审投票<ArrowRight size={16} /></button></div>}
+      {verdictPending && <div className="court-jury-call" role="status"><Gavel size={24} /><div><strong>等待法官当庭宣判</strong><p>陪审结果已锁定，{juryWinner === 'plaintiff' ? '原告' : '被告'}获得多数票。第 11 轮判词将在此公开。</p></div><button className="court-button" onClick={onOpenVote}>查看陪审结果</button></div>}
+      {!serverDriven && session.juryVote && session.status !== 'completed' && <div className="court-jury-call"><Check size={22} /><p>陪审意志已送达：力挺{ROLE_LABELS[session.juryVote]}！法官即将落槌宣判！</p>{!autoPlaying && !guest && !serverDriven && <button className="court-button court-button--primary" onClick={onAdvance} disabled={busy}><Gavel size={16} />听法官宣判</button>}</div>}
       {session.status === 'completed' && <div className="court-jury-call"><Gavel size={24} /><div><strong>本案已宣判</strong><p>{session.ruling?.result}</p></div><button className="court-button court-button--primary" onClick={onOpenVerdict}>查阅判决书</button><button className="court-button" onClick={() => { setViewIndex(0); onAutoPlayingChange(true); }}><RotateCcw size={15} />回看庭审</button></div>}
       {showTranscript && <ol className="court-transcript" aria-label="已发生的庭审记录">{session.turns.map((item, index) => <li key={item.id}><button onClick={() => { onAutoPlayingChange(false); setViewIndex(index); }}><span>{index + 1} · {ROLE_LABELS[item.speaker]}</span><p>{item.text}</p></button></li>)}</ol>}
-      <div className="court-stage-footer"><span>阵容出镜：{cast.name}</span><button onClick={onOpenCast}>换批演员</button><span>最高法庭 · 现场公决</span></div>
+      <div className="court-stage-footer"><span>阵容出镜：{cast.name}</span><button onClick={onOpenCast}>{serverDriven ? '查看出庭阵容' : '换批演员'}</button><span>最高法庭 · 现场公决</span></div>
       <EvidenceLockerModal isOpen={showEvidence} onClose={() => setShowEvidence(false)} evidences={session.evidences} />
     </section>
   );

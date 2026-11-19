@@ -38,7 +38,7 @@ function stdioAgent(base, ticket) {
 }
 const content = result => { assert.equal(result.isError, false, result.content?.[0]?.text); return result.structuredContent || JSON.parse(result.content[0].text); };
 
-test('three independent stdio Agents use real HTTP MCP for ten turns, seal verdicts and leave publication to human HTTP votes', async () => {
+test('three independent stdio Agents seal the record, await real HTTP jury votes and the original judge publishes round 11', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'court-mcp-'));
   let server, handler, service; const agents = [];
   try {
@@ -101,24 +101,30 @@ test('three independent stdio Agents use real HTTP MCP for ten turns, seal verdi
       const duplicate = content(await clients[role].tool('court_speak', args)); assert.equal(duplicate.game.session.turns.length, round + 1);
       assert.equal((await clients[role].tool('court_speak', { ...args, text: '同编号不同内容' })).isError, true);
     }
-    const judge = content(await clients.judge.tool('court_state')); assert.equal(judge.action, 'prepare_verdicts'); assert.equal(judge.game.session.turns.length, 10);
+    const judge = content(await clients.judge.tool('court_state')); assert.equal(judge.action, 'wait'); assert.equal(judge.game.session.turns.length, 10);
+    assert.equal(judge.roleFinished, false); assert.equal(judge.game.session.ruling, undefined);
     for (const role of ['plaintiff', 'defendant']) { const state = content(await clients[role].tool('court_state')); assert.equal(state.roleFinished, true); assert.equal(state.game.status, 'waiting-jury'); }
-    const makeVerdict = winner => ({ text: winner === 'plaintiff' ? '原告获支持，奶茶应当交还宇宙。' : '被告获支持，薯条获得临时外交豁免。', responseTo: [], evidenceIds: judge.game.session.evidences.map(e => e.id), ruling: { winner, result: `${winner}获支持`, penalty: ['承担一项荒诞但无害的义务'], quote: '本庭承认事实和薯条的局限。', reasons: ['已审查双方三次陈述及现有证物；判词依据封存案卷，支持方由真人陪审票决定。'], evidenceIds: judge.game.session.evidences.map(e => e.id), consideredInterventionIds: [] } });
-    const sealed = content(await clients.judge.tool('court_prepare_verdicts', { revision: judge.expectedRevision, clientActionId: 'sealed', plaintiff: makeVerdict('plaintiff'), defendant: makeVerdict('defendant') }));
-    assert.equal(sealed.roleFinished, true); assert.equal(sealed.game.verdict.prepared, true); assert.equal(sealed.game.session.ruling, undefined);
-    assert.ok(!JSON.stringify(sealed).includes('外交豁免')); assert.ok(!JSON.stringify(sealed).includes('奶茶应当'));
+    assert.equal((await clients.judge.tool('court_prepare_verdicts', { clientActionId: 'sealed', plaintiff: {}, defendant: {} })).isError, true);
     assert.equal(content(await clients.judge.tool('court_speak', firstArgs)).game.session.turns.length, 10);
-    const waiting = content(await clients.defendant.tool('court_wait', { afterRevision: sealed.expectedRevision, timeoutMs: 0 })); assert.equal(waiting.roleFinished, true);
+    const waiting = content(await clients.defendant.tool('court_wait', { afterRevision: judge.expectedRevision, timeoutMs: 0 })); assert.equal(waiting.roleFinished, true);
     assert.equal((await clients.judge.tool('court_wait', { afterRevision: 0, timeoutMs: 15001 })).isError, true);
 
-    // Disconnect all three agents before humans vote: the server must publish by itself.
-    for (const agent of agents) await agent.close();
     for (let index = 0; index < 3; index++) {
       const visitor = await fetch(`${base}/api/visitor`); const cookie = visitor.headers.get('set-cookie').split(';')[0]; const { csrfToken } = await visitor.json();
-      const response = await fetch(`${base}/api/games/${created.game.id}/votes`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base, cookie, 'x-court-csrf': csrfToken }, body: JSON.stringify({ winner: 'plaintiff', clientActionId: `human-vote-${index}` }) }); assert.equal(response.status, 200);
+      const response = await fetch(`${base}/api/games/${created.game.id}/votes`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base, cookie, 'x-court-csrf': csrfToken }, body: JSON.stringify({ winner: index === 1 ? 'defendant' : 'plaintiff', clientActionId: `human-vote-${index}` }) }); assert.equal(response.status, 200);
     }
+    const ready = content(await clients.judge.tool('court_wait', { afterRevision: judge.expectedRevision, timeoutMs: 0 }));
+    assert.equal(ready.action, 'submit_verdict'); assert.equal(ready.game.status, 'waiting-verdict'); assert.equal(ready.game.session.ruling, undefined);
+    const { plaintiffVotes, defendantVotes, outcome } = ready.game.jury;
+    assert.deepEqual([plaintiffVotes, defendantVotes, outcome], [2, 1, 'plaintiff']);
+    const evidenceIds = ready.game.session.evidences.map(e => e.id);
+    const ruling = { winner: outcome, result: '原告获陪审支持。', penalty: ['请为奶茶安排一次纸吸管会议。'], quote: '本庭承认事实与纸吸管的局限。', reasons: [`陪审团以 ${plaintiffVotes} 比 ${defendantVotes} 支持原告。`, '本庭根据双方公开陈述及现有证物裁决。'], evidenceIds, consideredInterventionIds: [] };
+    const args = { turnId: ready.turnId, revision: ready.expectedRevision, clientActionId: 'verdict-11', text: '陪审团二比一支持原告，本庭就奶茶争议宣判。', responseTo: [], evidenceIds, ruling };
+    assert.equal((await clients.defendant.tool('court_speak', args)).isError, true);
+    const accepted = content(await clients.judge.tool('court_speak', args)); assert.equal(accepted.roleFinished, true);
+    assert.ok(accepted.receipts.some(receipt => receipt.clientActionId === args.clientActionId && receipt.acceptedTurnId === args.turnId));
     const final = await (await fetch(`${base}/api/games/${created.game.id}`)).json();
-    assert.equal(final.status, 'completed'); assert.equal(final.session.ruling.winner, 'plaintiff'); assert.match(final.session.turns.at(-1).text, /奶茶/); assert.ok(!JSON.stringify(final).includes('外交豁免')); assert.ok(!JSON.stringify(final).includes('seatToken'));
+    assert.equal(final.status, 'completed'); assert.equal(final.session.ruling.winner, 'plaintiff'); assert.equal(final.session.turns.length, 11); assert.match(final.session.turns.at(-1).text, /奶茶/); assert.ok(!JSON.stringify(final).includes('seatToken'));
 
     // A terminal-only Agent can make a single equivalent HTTP RPC without registering MCP.
     const cli = await promisify(execFile)(process.execPath, ['public/agents/client.mjs', '--join-url', `${base}/join/${tickets.judge}`, '--request', JSON.stringify({ jsonrpc: '2.0', id: 77, method: 'tools/list' })], { timeout: 5000 });

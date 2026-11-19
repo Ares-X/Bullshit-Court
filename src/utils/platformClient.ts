@@ -1,5 +1,5 @@
-import type { CourtRole, CaseData } from '../types';
-import type { AgentState, AgentTurnInput, CreateGameResult, GameCard, GameInvitation, PlatformMode, PrepareVerdictsInput, PublicGame, JuryWinner } from '../types/platform';
+import type { CourtRole } from '../types';
+import type { AgentState, AgentTurnInput, CreateGameInput, CreateGameResult, GameCard, GameInvitation, PrepareVerdictsInput, PublicGame, JuryWinner } from '../types/platform';
 
 export class PlatformRequestError extends Error {
   constructor(message: string, public readonly status: number, public readonly code?: string) { super(message); this.name = 'PlatformRequestError'; }
@@ -32,8 +32,9 @@ export const platformClient = {
   agentVerdicts: (id: string, seatToken: string, input: PrepareVerdictsInput, signal?: AbortSignal) => request<AgentState>('/api/games/' + encodeURIComponent(id) + '/verdicts', { method: 'POST', headers: { Authorization: 'Bearer ' + seatToken }, body: JSON.stringify(input) }, signal),
   list: (signal?: AbortSignal) => request<{ games: GameCard[] }>('/api/games', {}, signal),
   get: (id: string, signal?: AbortSignal) => request<PublicGame>('/api/games/' + encodeURIComponent(id), {}, signal),
-  create: (caseData: CaseData, role: CourtRole, mode: PlatformMode, clientActionId: string, signal?: AbortSignal) =>
-    request<CreateGameResult>('/api/games', { method: 'POST', body: JSON.stringify({ caseData, role, mode, clientActionId }) }, signal),
+  capabilities: (signal?: AbortSignal) => request<{ builtinJudge: boolean }>('/api/capabilities', {}, signal),
+  create: (input: CreateGameInput, signal?: AbortSignal) =>
+    request<CreateGameResult>('/api/games', { method: 'POST', body: JSON.stringify(input) }, signal),
   invite: (id: string, role: CourtRole, ownerToken?: string, signal?: AbortSignal) =>
     request<GameInvitation>('/api/games/' + encodeURIComponent(id) + '/invitations', { method: 'POST', body: JSON.stringify({ role, ...(ownerToken ? { ownerToken } : {}) }) }, signal),
   visitor: (signal?: AbortSignal) => request<{ csrfToken: string }>('/api/visitor', {}, signal),

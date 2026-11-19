@@ -228,7 +228,12 @@ export function getCourtAgentRequest(session: CourtSession) {
   return { role: step.role, phase: step.phase, requiredInterventionIds: [...step.interventionIds], messages: liveMessages(session, step) };
 }
 
-async function generateLiveTurn(session: CourtSession, step: CourtScheduledTurn, config: CourtConnectionConfig | undefined, signal?: AbortSignal): Promise<unknown> {
+export async function requestCourtTurn(
+  messages: { role: string; content: string }[],
+  config: CourtConnectionConfig | undefined,
+  signal?: AbortSignal,
+  freeRouting?: { models: readonly string[]; schema: object },
+): Promise<unknown> {
   if (!config?.apiKey?.trim() || !config.apiEndpoint?.trim() || !config.modelName?.trim()) throw new CourtRuntimeError('CONFIG', '实时庭审需要 API Key、兼容 API 地址和模型名称。');
   let endpoint: URL;
   try { endpoint = new URL(config.apiEndpoint.trim()); } catch (cause) { throw new CourtRuntimeError('CONFIG', 'API 地址无效。', { cause }); }
@@ -245,13 +250,33 @@ async function generateLiveTurn(session: CourtSession, step: CourtScheduledTurn,
     if (signal?.aborted) cancel();
     const response = await fetch(endpoint.toString(), { method: 'POST', signal: controller.signal,
       headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.modelName, messages: liveMessages(session, step), temperature: 0.65, response_format: { type: 'json_object' } }) });
+      body: JSON.stringify({
+        messages,
+        temperature: 0.65,
+        ...(freeRouting ? {
+          models: freeRouting.models,
+          provider: { max_price: { prompt: 0, completion: 0, request: 0 }, require_parameters: true },
+          reasoning: { effort: 'none', exclude: true },
+          max_tokens: 1_300,
+          response_format: {
+            type: 'json_schema', json_schema: { name: 'court_turn', strict: true, schema: freeRouting.schema },
+          },
+        } : { model: config.modelName, response_format: { type: 'json_object' } }),
+      }) });
     if (!response.ok) throw new CourtRuntimeError('HTTP', `模型服务返回 HTTP ${response.status}，本轮未被接纳。`);
-    const body = await response.json() as { choices?: { message?: { content?: unknown } }[] };
+    const body = await response.json() as {
+      model?: string;
+      usage?: { cost?: number };
+      choices?: { message?: { content?: unknown } }[];
+    };
+    if (freeRouting && (!body.model || !freeRouting.models.includes(body.model) || (body.usage?.cost ?? 0) !== 0)) {
+      return invalid('模型服务未返回池中的免费型号。');
+    }
     const content = body?.choices?.[0]?.message?.content;
     if (typeof content !== 'string') return invalid('模型没有返回公开 JSON 发言。');
     let parsed: unknown;
     try { parsed = JSON.parse(content); } catch (cause) { throw new CourtRuntimeError('INVALID_RESPONSE', '模型返回的发言不是有效 JSON。', { cause }); }
+    if (freeRouting) console.info('court.builtinJudge.model', body.model);
     return parsed;
   } catch (error) {
     if (timedOut) throw new CourtRuntimeError('TIMEOUT', '模型请求超时，本轮未被接纳。', { cause: error });
@@ -358,7 +383,7 @@ export async function advanceCourtSession(session: CourtSession, config?: CourtC
   if (signal?.aborted) throw new CourtRuntimeError('ABORTED', '本轮已取消。');
   if (session.mode === 'external') return stateError('外部 Agent 模式由服务器接纳席位发言，不能在浏览器推进。');
   const step = expectedStep(session);
-  const payload = session.mode === 'live' ? await generateLiveTurn(session, step, config, signal) : rehearsalTurn(session, step);
+  const payload = session.mode === 'live' ? await requestCourtTurn(liveMessages(session, step), config, signal) : rehearsalTurn(session, step);
   if (signal?.aborted) throw new CourtRuntimeError('ABORTED', '本轮已取消。');
   return acceptTurn(session, payload, step.phase === 'verdict');
 }

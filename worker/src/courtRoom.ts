@@ -1,11 +1,13 @@
-import { applyExternalCourtRuling, applyExternalCourtTurn, castJuryVote, createCourtSession, rehearsalTurn, validateCourtSession } from '../../src/utils/courtRuntime';
+import { applyExternalCourtRuling, applyExternalCourtTurn, castJuryVote, CourtRuntimeError, createCourtSession, rehearsalTurn, validateCourtSession } from '../../src/utils/courtRuntime';
 import { toGameCard, gameCardSearchBlob } from '../../src/utils/gameCard';
+import { juryTotals, nextBuiltinRetry, platformCase, platformTurn, type BuiltinRetry } from '../../src/utils/platformGame';
 import type { CourtRole, CourtSession } from '../../src/types';
 import type { AgentState, CreateGameInput, CreateGameResult, GameInvitation, InvitationContext, JuryWinner, PrepareVerdictsInput, PublicGame, PublicSeat } from '../../src/types/platform';
 import type { Env } from './env';
 import { fail, HttpError, scopedToken } from './env';
 import { ensureSchema } from './d1';
 import { sha256 } from './sha256';
+import { generateBuiltinJudgeTurn } from './builtinJudge';
 
 const ROLES: CourtRole[] = ['judge', 'plaintiff', 'defendant'];
 const DAY = 24 * 60 * 60 * 1000;
@@ -23,6 +25,7 @@ interface InternalGame {
   id: string; mode: 'practice' | 'multiplayer'; revision: number; createdAt: number; updatedAt: number;
   session: CourtSession; seats: Record<CourtRole, Seat>; ownerHash: string; hidden?: boolean;
   votes: Record<string, JuryWinner>; deadlineAt?: number; outcome: 'pending' | JuryWinner | 'unresolved'; prepared?: Prepared;
+  postJury?: true; publishedAt?: number; builtinRetry?: BuiltinRetry;
   actions: Record<string, { fingerprint: string; result: unknown }>;
 }
 interface Subscription { revision: number; send: (game: PublicGame) => void; close: () => void }
@@ -58,21 +61,21 @@ export class CourtRoom {
     for (const r of ROLES) if (game.seats[r].tokenHash === digest) return r;
     return fail(401, 'AUTH', '席位令牌无效。');
   }
-  private canRun(game: InternalGame) { return ROLES.every(r => game.seats[r].source === 'practice' || game.seats[r].status === 'claimed'); }
+  private canRun(game: InternalGame) { return ROLES.every(r => game.seats[r].source !== 'external' || game.seats[r].status === 'claimed'); }
   private public(game: InternalGame): PublicGame {
-    const current = game.session.pendingTurns[0];
     const running = this.canRun(game);
-    const count = (winner: JuryWinner) => Object.values(game.votes).filter(v => v === winner).length;
-    const p = count('plaintiff'), d = count('defendant');
+    const current = running && game.outcome !== 'unresolved' ? platformTurn(game.session, game.postJury) : undefined;
+    const { plaintiff, defendant, total } = juryTotals(game.votes);
     return copy({ id: game.id, mode: game.mode, revision: game.revision, createdAt: game.createdAt, updatedAt: game.updatedAt,
-      status: game.session.status === 'completed' ? 'completed' : game.outcome === 'unresolved' ? 'unresolved' : !running ? 'waiting-agents' : current ? 'running' : 'waiting-jury',
+      status: game.session.status === 'completed' ? 'completed' : game.outcome === 'unresolved' ? 'unresolved' : !running ? 'waiting-agents' : current?.phase === 'verdict' ? 'waiting-verdict' : current ? 'running' : 'waiting-jury',
       session: game.session,
       seats: Object.fromEntries(ROLES.map(r => { const { role: seatRole, source, status, agentName } = game.seats[r]; return [r, { role: seatRole, source, status, ...(agentName ? {agentName} : {}) }]; })) as Record<CourtRole, PublicSeat>,
-      currentRole: running && current ? current.role : null,
-      currentTurnId: running && current ? `${game.session.id}-turn-${game.session.turns.length + 1}` : null,
+      currentRole: current?.role ?? null,
+      currentTurnId: current ? `${game.session.id}-turn-${game.session.turns.length + 1}` : null,
       guidePath: '/agents/guide.md',
-      jury: { plaintiffVotes: p, defendantVotes: d, total: p + d, minimumVotes: game.mode === 'practice' ? 1 : 3, ...(game.deadlineAt ? {deadlineAt: game.deadlineAt} : {}), outcome: game.outcome },
-      verdict: { prepared: !!game.prepared, ...(game.prepared ? {preparedAt: game.prepared.preparedAt, source: game.prepared.source, ...(game.prepared.publishedAt ? {publishedAt: game.prepared.publishedAt} : {})} : {}) },
+      jury: { plaintiffVotes: plaintiff, defendantVotes: defendant, total, minimumVotes: game.mode === 'practice' ? 1 : 3, ...(game.deadlineAt ? {deadlineAt: game.deadlineAt} : {}), outcome: game.outcome },
+      verdict: game.postJury ? { flow: 'post-jury', prepared: false, ...(game.publishedAt !== undefined ? {publishedAt: game.publishedAt, source: game.seats.judge.source} : {}) }
+        : { prepared: !!game.prepared, ...(game.prepared ? {preparedAt: game.prepared.preparedAt, source: game.prepared.source, ...(game.prepared.publishedAt ? {publishedAt: game.prepared.publishedAt} : {})} : {}) },
     });
   }
   private seatTicket(game: InternalGame, secret: string): { seat: Seat; role: CourtRole } {
@@ -82,8 +85,15 @@ export class CourtRoom {
   }
   /** Commit the mutated copy, persist it, notify streams and project the D1 card. */
   private async save(game: InternalGame, creation?: CreateReceipt) {
-    await this.ctx.storage.put('game', game);
-    if (creation) await this.ctx.storage.put('create', creation);
+    const alarm = this.nextAlarm(game);
+    await this.ctx.storage.transaction(async storage => {
+      await storage.put('game', game);
+      if (creation) await storage.put('create', creation);
+      const current = await storage.getAlarm();
+      if (current === alarm) return;
+      if (alarm === null) await storage.deleteAlarm();
+      else await storage.setAlarm(alarm);
+    });
     this.game = game;
     for (const subscription of [...this.subscriptions]) if (game.revision > subscription.revision) {
       subscription.revision = game.revision;
@@ -93,12 +103,11 @@ export class CourtRoom {
       waiter.cleanup(); waiter.resolve(waiter.token ? this.state(game, waiter.token) : this.public(game));
     }
     await this.project(game);
-    await this.schedule(game);
   }
   private change(game: InternalGame) { game.revision++; game.updatedAt = this.now(); }
   private seal(game: InternalGame) { if (!game.session.pendingTurns.length && !game.deadlineAt) game.deadlineAt = this.now() + DAY; }
   private pump(game: InternalGame) {
-    if (!this.canRun(game)) return;
+    if (!this.canRun(game) || game.outcome === 'unresolved') return;
     while (game.session.pendingTurns.length) {
       const step = game.session.pendingTurns[0];
       if (game.seats[step.role].source !== 'practice') break;
@@ -106,7 +115,7 @@ export class CourtRoom {
       this.change(game);
     }
     this.seal(game);
-    if (!game.session.pendingTurns.length && game.seats.judge.source === 'practice' && !game.prepared) {
+    if (!game.postJury && !game.session.pendingTurns.length && game.seats.judge.source === 'practice' && !game.prepared) {
       const make = (winner: JuryWinner) => { const fork = castJuryVote(game.session, winner); return rehearsalTurn(fork, { role: 'judge', phase: 'verdict', interventionIds: [] }); };
       this.prepare(game, make('plaintiff'), make('defendant'), 'practice');
     }
@@ -119,22 +128,35 @@ export class CourtRoom {
     this.change(game);
   }
   private settle(game: InternalGame) {
-    if (game.session.pendingTurns.length || game.session.status === 'completed') return;
-    const p = Object.values(game.votes).filter(v => v === 'plaintiff').length;
-    const d = Object.values(game.votes).filter(v => v === 'defendant').length;
-    const enough = p + d >= (game.mode === 'practice' ? 1 : 3);
-    let next = game.outcome;
-    if (next === 'pending' && enough && p !== d) next = p > d ? 'plaintiff' : 'defendant';
+    if (game.session.pendingTurns.length || game.session.status === 'completed' || game.outcome === 'unresolved') return;
+    const { plaintiff, defendant, total } = juryTotals(game.votes);
+    const enough = total >= (game.mode === 'practice' ? 1 : 3);
+    let next: InternalGame['outcome'] = game.outcome;
+    if (next === 'pending' && enough && plaintiff !== defendant) next = plaintiff > defendant ? 'plaintiff' : 'defendant';
     if (next === 'pending' && game.deadlineAt && this.now() >= game.deadlineAt) next = 'unresolved';
     if (next !== game.outcome) { game.outcome = next; this.change(game); }
-    if ((next === 'plaintiff' || next === 'defendant') && game.prepared) {
+    if (next !== 'plaintiff' && next !== 'defendant') return;
+    if (game.postJury) {
+      if (!game.session.juryVote) game.session = castJuryVote(game.session, next);
+      const step = platformTurn(game.session, game.postJury);
+      if (step && game.seats.judge.source === 'practice') this.acceptTurn(game, rehearsalTurn(game.session, step));
+    } else if (game.prepared) {
       game.session = applyExternalCourtRuling(castJuryVote(game.session, next), game.prepared[next]);
       game.prepared.publishedAt = this.now(); this.change(game);
     }
   }
+  private acceptTurn(game: InternalGame, payload: unknown) {
+    const verdict = platformTurn(game.session, game.postJury)?.phase === 'verdict';
+    if (verdict) {
+      game.session = applyExternalCourtRuling(game.session, payload);
+      game.publishedAt = this.now();
+    } else game.session = applyExternalCourtTurn(game.session, payload);
+    this.change(game);
+    if (!verdict) this.pump(game);
+  }
   private invitation(game: InternalGame, r: CourtRole): GameInvitation {
     const seat = game.seats[r];
-    if (seat.source === 'practice' || seat.status === 'claimed') return fail(409, 'SEAT_UNAVAILABLE', '该席位不能领取入场邀请。');
+    if (seat.source !== 'external' || seat.status === 'claimed') return fail(409, 'SEAT_UNAVAILABLE', '该席位不能领取入场邀请。');
     if (!seat.ticket) { seat.ticket = scopedToken(game.id); seat.status = 'reserved'; this.change(game); }
     return { ticket: seat.ticket, role: r, path: `/join/${seat.ticket}` };
   }
@@ -148,11 +170,11 @@ export class CourtRoom {
   private state(game: InternalGame, rawToken: string): AgentState {
     const r = this.auth(game, rawToken); const pub = this.public(game);
     const noMoreTurns = !game.session.pendingTurns.some(step => step.role === r);
-    const finished = game.session.status === 'completed' || (r === 'judge' ? !!game.prepared : noMoreTurns);
+    const finished = game.session.status === 'completed' || (game.postJury && game.outcome === 'unresolved') || (r === 'judge' ? !!game.prepared : noMoreTurns);
     const canSubmit = !finished && pub.currentRole === r;
-    const prepare = !finished && r === 'judge' && game.session.status === 'awaiting-ruling';
+    const prepare = !game.postJury && !finished && r === 'judge' && game.session.status === 'awaiting-ruling';
     return { game: pub, role: r, roleFinished: finished, canSubmit, turnId: canSubmit ? pub.currentTurnId : null, expectedRevision: game.revision,
-      action: finished ? 'finished' : prepare ? 'prepare_verdicts' : canSubmit ? 'submit_turn' : 'wait', guidePath: '/agents/guide.md', rolePromptPath: `/agents/roles/${r}.md`,
+      action: finished ? 'finished' : prepare ? 'prepare_verdicts' : canSubmit ? (pub.status === 'waiting-verdict' ? 'submit_verdict' : 'submit_turn') : 'wait', guidePath: '/agents/guide.md', rolePromptPath: `/agents/roles/${r}.md`,
       receipts: Object.entries(game.actions).filter(([key]) => key.startsWith(`${hash(rawToken)}:`)).map(([key, value]) => ({ clientActionId: key.slice(65), kind: JSON.parse(value.fingerprint).kind, ...(value.result as object) })) };
   }
 
@@ -172,17 +194,40 @@ export class CourtRoom {
       this.projectedKey = key;
     } catch (error) { this.projectedKey = undefined; console.error('court D1 projection failed', game.id, error); }
   }
-  private async schedule(game: InternalGame) {
-    const terminal = game.session.status === 'completed' || game.outcome === 'unresolved';
-    const target = !terminal && game.deadlineAt ? game.deadlineAt : null;
-    const current = await this.ctx.storage.getAlarm();
-    if (target === null) { if (current !== null) await this.ctx.storage.deleteAlarm(); return; }
-    if (current === null || current > target) await this.ctx.storage.setAlarm(target);
+  private nextAlarm(game: InternalGame): number | null {
+    const turnId = this.builtinTurn(game);
+    if (turnId) return game.builtinRetry?.turnId === turnId ? game.builtinRetry.after : this.now();
+    return game.outcome === 'pending' ? game.deadlineAt ?? null : null;
+  }
+  private builtinTurn(game: InternalGame): string | undefined {
+    if (game.seats.judge.source !== 'builtin' || game.outcome === 'unresolved' || !this.canRun(game)) return;
+    if (platformTurn(game.session, game.postJury)?.role === 'judge') return `${game.session.id}-turn-${game.session.turns.length + 1}`;
+  }
+  private async runBuiltin(game: InternalGame) {
+    const turnId = this.builtinTurn(game);
+    if (!turnId || (game.builtinRetry?.turnId === turnId && game.builtinRetry.after > this.now())) return;
+    const attempt = nextBuiltinRetry(turnId, this.now(), game.builtinRetry);
+    // Schedule recovery before leaving the object for inference. A killed alarm can be resumed.
+    await this.save({ ...game, builtinRetry: attempt });
+    try {
+      const apiKey = this.env.OPENROUTER_API_KEY?.trim();
+      if (!apiKey) throw new Error('Built-in judge credential is unavailable');
+      const payload = await generateBuiltinJudgeTurn(apiKey, this.public(game), attempt.attempts - 1);
+      const current = await this.load();
+      if (!current || this.builtinTurn(current) !== turnId || current.builtinRetry?.attempts !== attempt.attempts) return;
+      const next = copy(current);
+      this.acceptTurn(next, payload);
+      delete next.builtinRetry;
+      await this.save(next);
+    } catch (error) {
+      console.error('court built-in judge turn failed', game.id, turnId, error);
+    }
   }
   async alarm() {
     const game = await this.load(); if (!game) return;
     const next = copy(game); const before = next.revision; this.settle(next);
     if (next.revision !== before) await this.save(next);
+    if (this.game) await this.runBuiltin(this.game);
   }
 
   private async create(input: CreateGameInput, gameId: string): Promise<CreateGameResult> {
@@ -196,11 +241,13 @@ export class CourtRoom {
     if (input.mode !== undefined && input.mode !== 'practice' && input.mode !== 'multiplayer') return fail(400, 'INVALID_MODE', '未知游戏模式。');
     const mode = input.mode || 'practice';
     // Replay the empty session through the public validator to strip scripts, credentials and unknown fields.
-    const session = validateCourtSession(createCourtSession(input.caseData, 'external'));
+    const { caseData, builtinJudgeName } = platformCase(input, Boolean(this.env.OPENROUTER_API_KEY?.trim()), fail);
+    const session = validateCourtSession(createCourtSession(caseData, 'external'));
     const ownerToken = scopedToken(gameId); const time = this.now();
     const game: InternalGame = { id: gameId, mode, revision: 1, createdAt: time, updatedAt: time, session,
       seats: Object.fromEntries(ROLES.map(x => [x, { role: x, source: mode === 'multiplayer' || x === r ? 'external' : 'practice', status: mode === 'multiplayer' || x === r ? 'open' : 'practice' }])) as Record<CourtRole, Seat>,
-      ownerHash: hash(ownerToken), votes: {}, outcome: 'pending', actions: {} };
+      ownerHash: hash(ownerToken), votes: {}, outcome: 'pending', actions: {}, postJury: true };
+    if (builtinJudgeName) game.seats.judge = { role: 'judge', source: 'builtin', status: 'builtin', agentName: builtinJudgeName };
     const invitation = this.invitation(game, r);
     const result: CreateGameResult = { game: this.public(game), ownerToken, invitation };
     await this.save(game, { fingerprint, result });
@@ -251,8 +298,7 @@ export class CourtRoom {
     if (!state.canSubmit) fail(409, 'NOT_YOUR_TURN', '当前还未轮到该席位。');
     if (input.revision !== game.revision || input.turnId !== state.turnId) fail(409, 'STALE_TURN', '轮次或版本已变化，请读取当前状态再提交。');
     if (!input.payload || typeof input.payload !== 'object' || ((input.payload as { speaker?: unknown }).speaker !== undefined && (input.payload as { speaker?: unknown }).speaker !== r)) fail(403, 'ROLE_SCOPE', '席位令牌不能冒充其他角色。');
-    game.session = applyExternalCourtTurn(game.session, { ...(input.payload as object), speaker: r });
-    this.change(game); this.pump(game);
+    this.acceptTurn(game, { ...(input.payload as object), speaker: r });
     game.actions[action.key] = { fingerprint: action.fingerprint, result: { acceptedTurnId: input.turnId } }; await this.save(game);
     return this.state(game, rawToken);
   }
@@ -261,6 +307,7 @@ export class CourtRoom {
     const game = copy(stored); const action = this.dedup(game, hash(rawToken), input, 'verdicts');
     if (action.existing) return this.state(stored, rawToken);
     if (r !== 'judge') fail(403, 'ROLE_SCOPE', '只有法官席可以准备判词。');
+    if (game.postJury) fail(409, 'POST_JURY_VERDICT', '请等待陪审票决，再于第 11 轮公开宣判。');
     if (game.prepared) fail(409, 'ALREADY_PREPARED', '条件判词已经封存。');
     if (input.revision !== undefined && input.revision !== game.revision) fail(409, 'STALE_TURN', '版本已变化，请先读取当前状态。');
     this.prepare(game, input.plaintiff, input.defendant, 'external'); this.settle(game);
@@ -301,7 +348,7 @@ export class CourtRoom {
     }
     if (input.op === 'void') {
       next.hidden = true;
-      if (next.session.status !== 'completed' && next.outcome === 'pending') { next.outcome = 'unresolved'; }
+      if (next.session.status !== 'completed' && (next.outcome === 'pending' || next.postJury)) { next.outcome = 'unresolved'; }
       this.change(next); await this.save(next); return json({ game: this.public(next) });
     }
     if (input.op === 'unvoid') { next.hidden = false; this.change(next); await this.save(next); return json({ game: this.public(next) }); }
@@ -354,6 +401,7 @@ export class CourtRoom {
       return fail(404, 'NOT_FOUND', '不存在的法庭接口。');
     } catch (error) {
       if (error instanceof HttpError) return json({ error: error.code, message: error.message }, error.status);
+      if (error instanceof CourtRuntimeError) return json({ error: error.code, message: error.message }, error.code === 'INVALID_STATE' ? 409 : 400);
       console.error('court room error', error);
       return json({ error: 'INTERNAL', message: '庭审服务发生错误，操作未确认。请先查询状态。' }, 500);
     }

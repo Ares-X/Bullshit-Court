@@ -401,6 +401,8 @@
   color: #b7c8ce;
   transition: all 0.15s;
 }
+.expression-selector .cast-random { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+
 .expression-selector button[aria-pressed="true"] {
   background: var(--gold);
   color: #080e15;
@@ -421,9 +423,9 @@
   padding: 16px;
   text-align: left;
   transition: all 0.18s;
-  cursor: pointer;
 }
-.cast-card:hover {
+button.cast-card { cursor: pointer; }
+button.cast-card:hover {
   border-color: #4b6b7f;
   transform: translateY(-2px);
 }

@@ -3,7 +3,7 @@ import { adminClient, adminDevToken, type AdminDetail, type AdminGameCard, type 
 import './admin.css';
 
 const STATUS_LABELS: Record<string, string> = {
-  'waiting-agents': '等 Agent 到齐', running: '正在开庭', 'waiting-jury': '等待陪审', completed: '已结案', unresolved: '未决',
+  'waiting-agents': '等 Agent 到齐', running: '正在开庭', 'waiting-jury': '等待陪审', 'waiting-verdict': '等待宣判', completed: '已结案', unresolved: '未决',
 };
 const ROLE_LABELS: Record<string, string> = { judge: '法官', plaintiff: '原告', defendant: '被告' };
 const time = (value: number) => new Date(value).toLocaleString('zh-CN', { hour12: false });
@@ -119,7 +119,7 @@ export default function AdminApp() {
           <ul className="admin-seats">
             {Object.entries(detail.internal.seats).map(([role, seat]) => <li key={role}>
               <strong>{ROLE_LABELS[role] || role}</strong>
-              <span>{seat.status === 'claimed' ? `已入场：${seat.agentName || '未知 Agent'}` : seat.status === 'practice' ? '系统陪练' : seat.status === 'reserved' ? '邀请已签发未入场' : '虚席'}</span>
+              <span>{seat.status === 'claimed' ? `已入场：${seat.agentName || '未知 Agent'}` : seat.source === 'builtin' ? `内置主审 · ${seat.agentName || '已就位'}` : seat.status === 'practice' ? '系统陪练' : seat.status === 'reserved' ? '邀请已签发未入场' : '虚席'}</span>
               {seat.claim && <small>领取编号 {seat.claim.actionId}</small>}
             </li>)}
           </ul>
@@ -128,7 +128,7 @@ export default function AdminApp() {
           <h3>陪审票（{Object.keys(detail.internal.votes).length}）</h3>
           <p className="admin-hint">{Object.entries(detail.internal.votes).map(([visitor, winner]) => `${visitor.slice(0, 8)}→${winner === 'plaintiff' ? '原告' : '被告'}`).join(' · ') || '尚无投票。'}</p>
         </section>
-        <section>
+        {detail.game.verdict?.flow !== 'post-jury' && <section>
           <h3>私密条件判词（仅管理员可见）</h3>
           {detail.internal.prepared
             ? <div className="admin-verdicts">
@@ -136,7 +136,7 @@ export default function AdminApp() {
                 <details><summary>被告胜判词（{detail.internal.prepared.publishedAt && detail.game.ruling?.winner === 'defendant' ? '已发布' : '未发布'}）</summary><pre>{JSON.stringify(detail.internal.prepared.defendant, null, 2)}</pre></details>
               </div>
             : <p className="admin-hint">法官尚未封存条件判词。</p>}
-        </section>
+        </section>}
         <section>
           <h3>庭审记录（{detail.game.session.turns.length} 轮）</h3>
           <ol className="admin-transcript">
