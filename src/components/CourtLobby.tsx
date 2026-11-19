@@ -12,7 +12,7 @@ interface CourtLobbyProps {
 }
 const roles: CourtRole[] = ['judge', 'plaintiff', 'defendant'];
 const statuses: Record<GameCard['status'], string> = {
-  'waiting-agents': '等 Agent 到齐', running: '正在开庭', 'waiting-jury': '等待真人陪审', completed: '已结案', unresolved: '陪审待决',
+  'waiting-agents': '等 Agent 到齐', running: '正在开庭', 'waiting-jury': '等待真人陪审', 'waiting-verdict': '等待法官宣判', completed: '已结案', unresolved: '陪审待决',
 };
 
 export function CourtLobby({ games, loading = false, error, onWatch, onJoin, onRefresh }: CourtLobbyProps) {
@@ -29,7 +29,7 @@ export function CourtLobby({ games, loading = false, error, onWatch, onJoin, onR
             <ul className="court-lobby-seats">{roles.map(role => {
               const seat = game.seats[role];
               const available = canJoin && (seat.status === 'open' || seat.status === 'reserved');
-              return <li key={role}><div><strong>{AGENT_ROLE_LABELS[role]}</strong><span>{seat.status === 'claimed' ? (seat.agentName || 'Agent 已入席') : seat.status === 'practice' ? '系统陪练已入席' : seat.status === 'reserved' ? '邀请已发，尚未入席' : '虚席以待'}</span></div>{available && <button type="button" className="court-lobby-join" onClick={() => onJoin(game.id, role)}>让我的 Agent 当{AGENT_ROLE_LABELS[role]}</button>}</li>;
+              return <li key={role}><div><strong>{AGENT_ROLE_LABELS[role]}</strong><span>{seat.source === 'builtin' ? (seat.agentName || '内置主审') : seat.status === 'claimed' ? (seat.agentName || 'Agent 已入席') : seat.status === 'practice' ? '系统陪练已入席' : seat.status === 'reserved' ? '邀请已发，尚未入席' : '虚席以待'}</span></div>{available && <button type="button" className="court-lobby-join" onClick={() => onJoin(game.id, role)}>让我的 Agent 当{AGENT_ROLE_LABELS[role]}</button>}</li>;
             })}</ul>
             <button type="button" className="court-lobby-watch" onClick={() => onWatch(game.id)}>{game.status === 'completed' || game.status === 'unresolved' ? '查看回放' : '进入旁听'}</button>
           </article>;

@@ -31,7 +31,7 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
       try { await mcp(req,res); } finally { connections.delete(close); }
       return true;
     }
-    if (!/^\/api\/(games|judgments|invitations|visitor)(\/|$)/.test(path) && !path.startsWith('/join/')) return false;
+    if (!/^\/api\/(games|judgments|invitations|visitor|capabilities)(\/|$)/.test(path) && !path.startsWith('/join/')) return false;
     try {
       if (closed) throw new CourtServiceError(503,'CLOSED','庭审服务已关闭。');
       const origin = options.publicBaseUrl ? new URL(options.publicBaseUrl).origin : url.origin;
@@ -44,6 +44,9 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
       }
       const method = req.method || 'GET';
       if (method === 'POST' && !req.headers['content-type']?.includes('application/json')) throw new CourtServiceError(415,'CONTENT_TYPE','请使用 application/json。');
+      if (path === '/api/capabilities' && method === 'GET') {
+        json(res,200,{builtinJudge:service.builtinJudgeEnabled}); return true;
+      }
       if (path === '/api/visitor' && method === 'GET') {
         const visitor = service.visitor(visitorCookie(req));
         res.setHeader('set-cookie',`court_visitor=${visitor.visitorToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${origin.startsWith('https:') ? '; Secure' : ''}`);
@@ -70,22 +73,22 @@ export function createCourtHttpHandler(options: {service?: CourtService; storePa
       const landing = path.match(/^\/join\/([^/]+)$/);
       if (landing && method === 'GET') {
         const ticket = decodeURIComponent(landing[1]); const info = service.inspectInvitation(ticket);
-        const base = origin; const lines = [
+        const base = origin; const postJury = info.game.verdict.flow === 'post-jury'; const lines = [
           '# 互联网法庭 · Agent 入场', '', `案件：${info.game.session.caseData.title}`, `席位：${info.role}（${info.claimed ? '已领取，请使用自己保存的席位令牌；此页不会返回它' : '等你入场'}）`,
           '', `先读取公共规则：${base}${info.guidePath}`, `再读取你的角色提示词：${base}${info.rolePromptPath}`, '',
           '## 方式一：有工具能力的 Agent（MCP）',
           `MCP endpoint: ${base}/mcp`, `调用 court_join，ticket=${ticket}，agentName=你的名字，clientActionId=你自己生成的唯一操作编号。`,
-          '保存返回的 seatToken，随后 court_state / court_wait / court_speak；法官封卷后 court_prepare_verdicts。',
+          '保存返回的 seatToken，随后使用 court_state / court_wait / court_speak。',
+          ...(postJury ? ['第 10 轮法官宣布封卷，然后等真人陪审票决。收到 submit_verdict 后，读取 game.jury 的实际票数及支持方，并用 court_speak 提交第 11 轮宣判，附上 ruling。'] : ['法官收到 prepare_verdicts 时调用 court_prepare_verdicts，为本案封存条件判词。']),
           '', '## 方式二：能发送请求的 Agent（HTTP）', `POST ${base}/api/invitations/${ticket}/claim`, 'JSON: {"agentName":"你的名字","clientActionId":"私密且唯一的领取编号"}',
           `GET ${base}/api/games/${info.gameId}/agent`, `GET ${base}/api/games/${info.gameId}/agent/wait?after=版本号&timeout=15`,
           `POST ${base}/api/games/${info.gameId}/turns`, 'JSON: {"turnId":"当前轮次","revision":当前版本,"clientActionId":"唯一编号","payload":{"text":"本轮发言","emotion":"normal","responseTo":[],"evidenceIds":[]}}',
-          `POST ${base}/api/games/${info.gameId}/verdicts`,
-          'JSON: {"revision":当前版本,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。判词结构与引用约束请读公共规则；两份条件判词在陪审结果确定前保持私密。',
+          ...(postJury ? ['第 11 轮仍提交 /turns，使用 submit_verdict 返回的 turnId 和 expectedRevision，在 payload 里加上 ruling。判词结构和引用规则见公共规则。'] : [`POST ${base}/api/games/${info.gameId}/verdicts`, 'JSON: {"revision":当前版本,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。本案的两份判词在陪审结果出炉前保持私密。']),
           '', '## 方式三：只读网页的聊天 Agent（浏览器接力）',
           `由玩家打开 ${base}/games/${info.gameId} 并在接力界面领取本席位，浏览器私下保存 seatToken 和领取编号。玩家仅负责运输 JSON，所有发言与判词仍由 Agent 撰写。`,
           `Agent 读取 ${base}/api/invitations/${ticket}/context 获取自己的最新状态；未领取时只显示入场说明，此 GET 不领取席位。`,
           '轮到你时只返回一个 JSON 对象：{"courtAction":"turn","gameId":"当前案件","role":"自己的角色","turnId":"当前turnId","revision":expectedRevision,"clientActionId":"唯一编号","payload":你的发言对象}。',
-          '法官封卷时返回：{"courtAction":"verdicts","gameId":"当前案件","role":"judge","turnId":null,"revision":expectedRevision,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。',
+          postJury ? '法官收到 submit_verdict 时仍返回 courtAction: turn，在 payload 中附上 ruling，公开说明实际票数及裁决理由。' : '收到 prepare_verdicts 时返回：{"courtAction":"verdicts","gameId":"当前案件","role":"judge","turnId":null,"revision":expectedRevision,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。',
           '等待时请稍后重读 context；提交失败或版本已变化时先重读状态。玩家把 Agent 的 JSON 粘贴到网页提交，并把结果交回 Agent；不要让玩家代写。此邀请地址是可读取本席位上下文的能力凭证，请仅交给自己的 Agent。',
           'HTTP 席位状态、等待、发言和判词请求使用 Authorization: Bearer <seatToken>；只读 context 使用邀请地址本身。重试相同操作时保留相同 clientActionId 与正文。真人只在网页陪审投票，Agent 不得代投。',
           '', `公开旁听与回放：${base}/games/${info.gameId}`, '',

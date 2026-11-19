@@ -98,22 +98,23 @@ async function listJudgments(env: Env, url: URL): Promise<Response> {
 // ---------- agent landing page (same contract as the Node server) ----------
 function joinPage(origin: string, ticket: string, info: any): Response {
   const base = origin;
+  const postJury = info.game.verdict.flow === 'post-jury';
   const lines = [
     '# 互联网法庭 · Agent 入场', '', `案件：${info.game.session.caseData.title}`, `席位：${info.role}（${info.claimed ? '已领取，请使用自己保存的席位令牌；此页不会返回它' : '等你入场'}）`,
     '', `先读取公共规则：${base}${info.guidePath}`, `再读取你的角色提示词：${base}${info.rolePromptPath}`, '',
     '## 方式一：有工具能力的 Agent（MCP）',
     `MCP endpoint: ${base}/mcp`, `调用 court_join，ticket=${ticket}，agentName=你的名字，clientActionId=你自己生成的唯一操作编号。`,
-    '保存返回的 seatToken，随后 court_state / court_wait / court_speak；法官封卷后 court_prepare_verdicts。',
+    '保存返回的 seatToken，随后使用 court_state / court_wait / court_speak。',
+    ...(postJury ? ['第 10 轮法官宣布封卷，然后等真人陪审票决。收到 submit_verdict 后，读取 game.jury 的实际票数及支持方，并用 court_speak 提交第 11 轮宣判，附上 ruling。'] : ['法官收到 prepare_verdicts 时调用 court_prepare_verdicts，为本案封存条件判词。']),
     '', '## 方式二：能发送请求的 Agent（HTTP）', `POST ${base}/api/invitations/${ticket}/claim`, 'JSON: {"agentName":"你的名字","clientActionId":"私密且唯一的领取编号"}',
     `GET ${base}/api/games/${info.gameId}/agent`, `GET ${base}/api/games/${info.gameId}/agent/wait?after=版本号&timeout=15`,
     `POST ${base}/api/games/${info.gameId}/turns`, 'JSON: {"turnId":"当前轮次","revision":当前版本,"clientActionId":"唯一编号","payload":{"text":"本轮发言","emotion":"normal","responseTo":[],"evidenceIds":[]}}',
-    `POST ${base}/api/games/${info.gameId}/verdicts`,
-    'JSON: {"revision":当前版本,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。判词结构与引用约束请读公共规则；两份条件判词在陪审结果确定前保持私密。',
+    ...(postJury ? ['第 11 轮仍提交 /turns，使用 submit_verdict 返回的 turnId 和 expectedRevision，在 payload 里加上 ruling。判词结构和引用规则见公共规则。'] : [`POST ${base}/api/games/${info.gameId}/verdicts`, 'JSON: {"revision":当前版本,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。本案的两份判词在陪审结果出炉前保持私密。']),
     '', '## 方式三：只读网页的聊天 Agent（浏览器接力）',
     `由玩家打开 ${base}/games/${info.gameId} 并在接力界面领取本席位，浏览器私下保存 seatToken 和领取编号。玩家仅负责运输 JSON，所有发言与判词仍由 Agent 撰写。`,
     `Agent 读取 ${base}/api/invitations/${ticket}/context 获取自己的最新状态；未领取时只显示入场说明，此 GET 不领取席位。`,
     '轮到你时只返回一个 JSON 对象：{"courtAction":"turn","gameId":"当前案件","role":"自己的角色","turnId":"当前turnId","revision":expectedRevision,"clientActionId":"唯一编号","payload":你的发言对象}。',
-    '法官封卷时返回：{"courtAction":"verdicts","gameId":"当前案件","role":"judge","turnId":null,"revision":expectedRevision,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。',
+    postJury ? '法官收到 submit_verdict 时仍返回 courtAction: turn，在 payload 中附上 ruling，公开说明实际票数及裁决理由。' : '收到 prepare_verdicts 时返回：{"courtAction":"verdicts","gameId":"当前案件","role":"judge","turnId":null,"revision":expectedRevision,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。',
     '等待时请稍后重读 context；提交失败或版本已变化时先重读状态。玩家把 Agent 的 JSON 粘贴到网页提交，并把结果交回 Agent；不要让玩家代写。此邀请地址是可读取本席位上下文的能力凭证，请仅交给自己的 Agent。',
     'HTTP 席位状态、等待、发言和判词请求使用 Authorization: Bearer <seatToken>；只读 context 使用邀请地址本身。重试相同操作时保留相同 clientActionId 与正文。真人只在网页陪审投票，Agent 不得代投。',
     '', `公开旁听与回放：${base}/games/${info.gameId}`, '',
@@ -152,7 +153,7 @@ async function adminApi(env: Env, request: Request, url: URL): Promise<Response>
     const like = `%${escapeLike(query)}%`;
     const filters = ['1=1'];
     const bindings: unknown[] = [];
-    if (status && ['waiting-agents', 'running', 'waiting-jury', 'completed', 'unresolved'].includes(status)) { filters.push('status = ?'); bindings.push(status); }
+    if (status && ['waiting-agents', 'running', 'waiting-jury', 'waiting-verdict', 'completed', 'unresolved'].includes(status)) { filters.push('status = ?'); bindings.push(status); }
     if (query) { filters.push("search LIKE ? ESCAPE '\\'"); bindings.push(like); }
     if (cursor) { filters.push('(created_at < ? OR (created_at = ? AND id < ?))'); bindings.push(cursor.createdAt, cursor.createdAt, cursor.id); }
     const result = await env.DB.prepare(`SELECT card, hidden, created_at, id FROM games WHERE ${filters.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ?`).bind(...bindings, limit).all<Row>();
@@ -179,8 +180,34 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
-    const origin = env.COURT_PUBLIC_BASE_URL ? new URL(env.COURT_PUBLIC_BASE_URL).origin : url.origin;
+    const adminHost = env.COURT_ADMIN_HOST?.toLowerCase();
+    const onAdminHost = !!adminHost && url.hostname === adminHost;
+    const adminPage = path === '/admin' || path.startsWith('/admin/');
+    const adminEndpoint = path.startsWith('/api/admin/');
+    const origin = onAdminHost || !env.COURT_PUBLIC_BASE_URL ? url.origin : new URL(env.COURT_PUBLIC_BASE_URL).origin;
     try {
+      if (adminHost) {
+        if (onAdminHost) {
+          if (path === '/' && (method === 'GET' || method === 'HEAD')) {
+            return Response.redirect(new URL('/admin', url).href, 307);
+          }
+          if (adminPage) {
+            await adminGuard(env, request);
+            const asset = await env.ASSETS.fetch(request);
+            const headers = new Headers(asset.headers);
+            headers.set('Cache-Control', 'private, no-store');
+            return new Response(asset.body, { status: asset.status, headers });
+          }
+          if (!adminEndpoint && !path.startsWith('/assets/') && path !== '/favicon.svg') {
+            return fail(404, 'NOT_FOUND', '这个地址没有页面。');
+          }
+        } else {
+          if (adminPage && (method === 'GET' || method === 'HEAD')) {
+            return Response.redirect(`https://${adminHost}/admin`, 307);
+          }
+          if (adminEndpoint) return fail(404, 'NOT_FOUND', '这个地址没有页面。');
+        }
+      }
       if (path === '/mcp') {
         const origins = new Set([origin, url.origin]);
         return await handleCourtMcp(request, {
@@ -200,6 +227,7 @@ export default {
       if (method !== 'GET' && method !== 'HEAD') sameOriginGuard(request, origin);
       if (method === 'POST' && !(request.headers.get('content-type') || '').includes('application/json')) return fail(415, 'CONTENT_TYPE', '请使用 application/json。');
 
+      if (path === '/api/capabilities' && method === 'GET') return jsonResponse({ builtinJudge: Boolean(env.OPENROUTER_API_KEY?.trim()) });
       if (path === '/api/visitor' && method === 'GET') return await visitorResponse(env, request);
       if (path === '/api/judgments' && method === 'GET') return await listJudgments(env, url);
       if (path === '/api/games') {
@@ -219,7 +247,12 @@ export default {
         }
         return fail(405, 'METHOD', '不支持该方法。');
       }
-      if (path.startsWith('/api/admin/')) return await adminApi(env, request, url);
+      if (adminEndpoint) {
+        if (onAdminHost && method !== 'GET' && method !== 'HEAD' && request.headers.get('origin') !== url.origin) {
+          return fail(403, 'ORIGIN', '请从管理后台发起操作。');
+        }
+        return await adminApi(env, request, url);
+      }
 
       const invitation = path.match(/^\/api\/invitations\/([^/]+)(\/(?:claim|context))?$/);
       if (invitation) {

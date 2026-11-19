@@ -1,5 +1,5 @@
 /** Cloudflare Access JWT validation (RS256) using WebCrypto only.
- * Setup: create a self-hosted Access application for the /admin* path in the
+ * Setup: create a self-hosted Access application for the admin hostname in the
  * Zero Trust dashboard, then set COURT_ACCESS_TEAM and COURT_ACCESS_AUD.
  * https://developers.cloudflare.com/cloudflare-one/policies/access/validate-jwt/ */
 interface AccessJwt { header: { alg: string; kid: string }; payload: { aud: string | string[]; iss: string; exp: number; iat?: number; email?: string; common_name?: string }; signature: Uint8Array }

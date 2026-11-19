@@ -2,10 +2,11 @@ import type { CaseData, CourtRole, CourtSession } from './index';
 
 export type PlatformMode = 'practice' | 'multiplayer';
 export type JuryWinner = 'plaintiff' | 'defendant';
+export interface CourtCapabilities { builtinJudge: boolean }
 export interface PublicSeat {
   role: CourtRole;
-  source: 'practice' | 'external';
-  status: 'practice' | 'open' | 'reserved' | 'claimed';
+  source: 'practice' | 'external' | 'builtin';
+  status: 'practice' | 'open' | 'reserved' | 'claimed' | 'builtin';
   agentName?: string;
 }
 export interface PublicGame {
@@ -14,7 +15,7 @@ export interface PublicGame {
   revision: number;
   createdAt: number;
   updatedAt: number;
-  status: 'waiting-agents' | 'running' | 'waiting-jury' | 'completed' | 'unresolved';
+  status: 'waiting-agents' | 'running' | 'waiting-jury' | 'waiting-verdict' | 'completed' | 'unresolved';
   session: CourtSession;
   seats: Record<CourtRole, PublicSeat>;
   currentTurnId: string | null;
@@ -28,7 +29,7 @@ export interface PublicGame {
     deadlineAt?: number;
     outcome: 'pending' | JuryWinner | 'unresolved';
   };
-  verdict: { prepared: boolean; preparedAt?: number; publishedAt?: number; source?: 'practice' | 'external' };
+  verdict: { flow?: 'post-jury'; prepared: boolean; preparedAt?: number; publishedAt?: number; source?: PublicSeat['source'] };
 }
 export interface AgentState {
   game: PublicGame;
@@ -37,7 +38,7 @@ export interface AgentState {
   canSubmit: boolean;
   turnId: string | null;
   expectedRevision: number;
-  action: 'wait' | 'submit_turn' | 'prepare_verdicts' | 'finished';
+  action: 'wait' | 'submit_turn' | 'submit_verdict' | 'prepare_verdicts' | 'finished';
   guidePath: string;
   rolePromptPath: string;
   receipts: {clientActionId: string; kind: string; acceptedTurnId?: string; prepared?: boolean}[];
@@ -59,7 +60,14 @@ export interface GameCard {
   ruling?: { winner: 'plaintiff' | 'defendant' | 'draw'; quote?: string; result: string };
 }
 export interface GameInvitation { ticket: string; role: CourtRole; path: string }
-export interface CreateGameInput { caseData: CaseData; role: CourtRole; mode?: PlatformMode; clientActionId?: string }
+export interface CreateGameInput {
+  caseData: CaseData;
+  role: CourtRole;
+  mode?: PlatformMode;
+  clientActionId?: string;
+  judgeMode?: 'external' | 'builtin';
+  judgeCastId?: string;
+}
 export interface CreateGameResult { game: PublicGame; ownerToken: string; invitation: GameInvitation }
 export interface AgentTurnInput { turnId: string; revision: number; clientActionId: string; payload: unknown }
 export interface PrepareVerdictsInput { clientActionId: string; plaintiff: unknown; defendant: unknown; revision?: number }

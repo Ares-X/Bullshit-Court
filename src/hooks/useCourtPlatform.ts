@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CaseData, CourtRole } from '../types';
-import type { GameCard, GameInvitation, PlatformMode, PublicGame, JuryWinner } from '../types/platform';
+import type { CourtRole } from '../types';
+import type { CreateGameInput, GameCard, GameInvitation, PublicGame, JuryWinner } from '../types/platform';
 import { newActionId, platformClient, publicGamePath } from '../utils/platformClient';
 
 const routeId = () => /^\/games\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname)?.[1];
@@ -159,14 +159,14 @@ export function useCourtPlatform() {
     return () => { active = false; source?.close(); current?.abort(); window.clearTimeout(timer); };
   }, [gameId, apply]);
 
-  const create = useCallback(async (caseData: CaseData, role: CourtRole, mode: PlatformMode) => {
+  const create = useCallback(async (input: Omit<CreateGameInput, 'clientActionId'>) => {
     if (pendingOperation.current) return false;
     pendingOperation.current = true; setBusy(true); setError(undefined);
     const controller = new AbortController(); requestRef.current = controller;
-    const fingerprint = JSON.stringify({ caseData, role, mode });
+    const fingerprint = JSON.stringify(input);
     if (pendingCreate.current?.fingerprint !== fingerprint) pendingCreate.current = { fingerprint, id: newActionId() };
     try {
-      const result = await platformClient.create(caseData, role, mode, pendingCreate.current.id, controller.signal);
+      const result = await platformClient.create({ ...input, clientActionId: pendingCreate.current.id }, controller.signal);
       if (disposed.current || controller.signal.aborted) return false;
       owners.current.set(result.game.id, result.ownerToken);
       watch(result.game.id); apply(result.game); rememberInvitation(result.game.id, result.invitation); pendingCreate.current = undefined;

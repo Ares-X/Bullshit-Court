@@ -11,6 +11,7 @@ const ruling = { type: 'object', properties: {
   winner: { type: 'string', enum: ['plaintiff', 'defendant'] }, result: string,
   penalty: references, quote: string, reasons: references, evidenceIds: references, consideredInterventionIds: references,
 }, required: ['winner', 'result', 'penalty', 'quote', 'reasons', 'evidenceIds', 'consideredInterventionIds'], additionalProperties: false };
+export { ruling as courtRulingSchema };
 const verdict = { type: 'object', properties: { text: string, emotion, responseTo: references, evidenceIds: references, ruling }, required: ['text', 'responseTo', 'evidenceIds', 'ruling'], additionalProperties: false };
 const seatToken = { type: 'string', description: 'Only needed if this HTTP client cannot send Authorization: Bearer. Keep private.' };
 function tool(name: string, description: string, properties: Record<string, unknown>, required: string[] = [], readOnlyHint = false) {
@@ -19,9 +20,9 @@ function tool(name: string, description: string, properties: Record<string, unkn
 export const courtMcpTools = [
   tool('court_join', 'Claim the one seat granted by your invitation. Read the fixed guide and your role rules first. Reuse clientActionId on uncertain retries.', { ticket: string, agentName: string, clientActionId: string }, ['ticket', 'agentName', 'clientActionId']),
   tool('court_state', 'Read your authorized public case, current turn, own receipts and roleFinished. roleFinished is not a final case verdict.', { seatToken }, [], true),
-  tool('court_wait', 'Wait for a public revision, then return current state. Maximum 15 seconds. Stop when roleFinished is true; the server handles later human votes.', { seatToken, afterRevision: { type: 'integer', minimum: 0 }, timeoutMs: { type: 'integer', minimum: 0, maximum: 15000 } }, ['afterRevision'], true),
-  tool('court_speak', 'Submit only your current public turn. Your token fixes your role. Use actual references and a stable clientActionId; stale turns are rejected.', { seatToken, turnId: string, revision: { type: 'integer', minimum: 0 }, clientActionId: string, text: string, emotion, responseTo: references, evidenceIds: references }, ['turnId', 'revision', 'clientActionId', 'text', 'responseTo', 'evidenceIds']),
-  tool('court_prepare_verdicts', 'Judge only, after the ten public rounds: seal one reasoned verdict for each possible human jury winner. Both remain private until the server publishes the winning one. After acceptance the judge can finish.', { seatToken, revision: { type: 'integer', minimum: 0 }, clientActionId: string, plaintiff: verdict, defendant: verdict }, ['clientActionId', 'plaintiff', 'defendant']),
+  tool('court_wait', 'Wait for a public revision, then return current state. Maximum 15 seconds. Stop when roleFinished is true. The judge should wait for the human jury result after sealing the record.', { seatToken, afterRevision: { type: 'integer', minimum: 0 }, timeoutMs: { type: 'integer', minimum: 0, maximum: 15000 } }, ['afterRevision'], true),
+  tool('court_speak', 'Submit your current public turn. Round 10 closes the record. For submit_verdict, add ruling and use the recorded human jury winner and vote totals. Keep the same clientActionId on uncertain retries.', { seatToken, turnId: string, revision: { type: 'integer', minimum: 0 }, clientActionId: string, text: string, emotion, responseTo: references, evidenceIds: references, ruling }, ['turnId', 'revision', 'clientActionId', 'text', 'responseTo', 'evidenceIds']),
+  tool('court_prepare_verdicts', 'For legacy cases only when action is prepare_verdicts. Seal two private conditional verdicts and let the server publish the jury-selected verdict.', { seatToken, revision: { type: 'integer', minimum: 0 }, clientActionId: string, plaintiff: verdict, defendant: verdict }, ['clientActionId', 'plaintiff', 'defendant']),
 ];
 
 export interface McpCourtDeps {
@@ -94,7 +95,7 @@ export async function handleCourtMcp(request: Request, deps: McpCourtDeps, allow
           value = await deps.wait(token, { afterRevision: integer(args.afterRevision, 'afterRevision'), timeoutMs, signal: request.signal });
         } else if (params.name === 'court_speak') {
           if (args.emotion !== undefined && !emotion.enum.includes(args.emotion)) throw new Error('Invalid emotion');
-          value = await deps.speak(token, { turnId: requiredString(args.turnId, 'turnId'), revision: integer(args.revision, 'revision'), clientActionId: requiredString(args.clientActionId, 'clientActionId'), payload: { text: requiredString(args.text, 'text'), ...(args.emotion ? { emotion: args.emotion } : {}), responseTo: ids(args.responseTo, 'responseTo'), evidenceIds: ids(args.evidenceIds, 'evidenceIds') } });
+          value = await deps.speak(token, { turnId: requiredString(args.turnId, 'turnId'), revision: integer(args.revision, 'revision'), clientActionId: requiredString(args.clientActionId, 'clientActionId'), payload: { text: requiredString(args.text, 'text'), ...(args.emotion ? { emotion: args.emotion } : {}), responseTo: ids(args.responseTo, 'responseTo'), evidenceIds: ids(args.evidenceIds, 'evidenceIds'), ...(args.ruling === undefined ? {} : { ruling: object(args.ruling) }) } });
         } else {
           value = await deps.prepareVerdicts(token, { clientActionId: requiredString(args.clientActionId, 'clientActionId'), ...(args.revision === undefined ? {} : { revision: integer(args.revision, 'revision') }), plaintiff: { ...object(args.plaintiff), speaker: 'judge' }, defendant: { ...object(args.defendant), speaker: 'judge' } });
         }

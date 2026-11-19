@@ -7,7 +7,10 @@ export interface Env {
   ASSETS: Fetcher;
   /** HMAC key for stateless visitor cookies. Set via wrangler secret or .dev.vars. */
   COURT_VISITOR_SECRET?: string;
+  /** Server-side key for the optional built-in judge. */
+  OPENROUTER_API_KEY?: string;
   COURT_PUBLIC_BASE_URL?: string;
+  COURT_ADMIN_HOST?: string;
   /** Cloudflare Access team name (e.g. "myteam") and the admin app's AUD tag. */
   COURT_ACCESS_TEAM?: string;
   COURT_ACCESS_AUD?: string;

@@ -1,10 +1,10 @@
-import type { GameCard } from '../types/platform';
+import type { GameCard, PublicGame } from '../types/platform';
 
 export interface AdminGameCard extends GameCard { hidden?: boolean }
 export interface AdminOverview { admin: string; todayCreated: number; groups: { mode: string; status: string; n: number }[] }
 export interface AdminDetail {
   admin: string;
-  game: GameCard & { revision: number; session: { caseData: { summary: string; coreClash: string }; ruling?: { result: string; quote?: string; reasons: string[] } | null; turns: { id: string; speaker: string; text: string }[] } };
+  game: GameCard & { revision: number; verdict?: PublicGame['verdict']; session: { caseData: { summary: string; coreClash: string }; ruling?: { result: string; quote?: string; reasons: string[] } | null; turns: { id: string; speaker: string; text: string }[] } };
   internal: {
     hidden: boolean;
     seats: Record<string, { role: string; source: string; status: string; agentName?: string; claim?: { actionId: string; agentName?: string }; ticket?: string }>;
