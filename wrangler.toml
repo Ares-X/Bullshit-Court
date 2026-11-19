@@ -9,6 +9,15 @@ preview_urls = false
 pattern = "bullshitcourt.lol"
 custom_domain = true
 
+[[routes]]
+pattern = "admin.bullshitcourt.lol"
+custom_domain = true
+
+[vars]
+COURT_ADMIN_HOST = "admin.bullshitcourt.lol"
+COURT_ACCESS_TEAM = "bullshitcourt"
+COURT_ACCESS_AUD = "44b9d80853f9d6fe4cae927ff13f4df0673be4483a3dadb69d57c83565945af8"
+
 # One CourtRoom Durable Object per game. SQLite-backed classes are required on
 # the Workers free plan and keep storage local to the object.
 [[durable_objects.bindings]]
