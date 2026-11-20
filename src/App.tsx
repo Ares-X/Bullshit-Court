@@ -1,12 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Scale } from 'lucide-react';
 import type { CaseData, CourtConnectionConfig, CourtRole, CourtSession } from './types';
 import { PRESET_CASES } from './data/presetCases';
 import { applyCourtCast, getCourtCast } from './data/courtCasts';
 import { Header } from './components/Header';
 import { CourtStage } from './components/CourtStage';
-import { CaseSelectModal } from './components/CaseSelectModal';
-import { CustomCaseModal } from './components/CustomCaseModal';
 import { JuryVoteModal } from './components/JuryVoteModal';
 import { VerdictModal } from './components/VerdictModal';
 import { AgentHubModal } from './components/AgentHubModal';
@@ -28,14 +25,16 @@ import { AgentJoinModal } from './components/AgentJoinModal';
 import { CourtLobby } from './components/CourtLobby';
 import { PlatformJuryModal } from './components/PlatformJuryModal';
 import { publicGamePath } from './utils/platformClient';
-import type { CreateGameInput, PlatformMode, PublicGame } from './types/platform';
+import type { CreateGameInput, PublicGame } from './types/platform';
 import { PlatformHome } from './components/PlatformHome';
 import { JudgmentLibrary } from './components/JudgmentLibrary';
 import { AgentRelayModal } from './components/AgentRelayModal';
+import { PartyCaseModal } from './components/PartyCaseModal';
+import { PartyResponse, PartyShareModal } from './components/PartyRoom';
 import './platform.css';
 import './pixel.css';
 
-type Panel = 'cases' | 'custom' | 'jury' | 'verdict' | 'agents' | 'history' | 'room' | 'cast' | 'config' | 'join' | 'lobby' | 'library' | 'relay' | null;
+type Panel = 'file' | 'share' | 'jury' | 'verdict' | 'agents' | 'history' | 'room' | 'cast' | 'config' | 'join' | 'lobby' | 'library' | 'relay' | null;
 const initialCase = applyCourtCast(PRESET_CASES[0], 'everyday');
 const platformStatusLabels: Record<PublicGame['status'], string> = {
   'waiting-agents': '等待 Agent 入席',
@@ -55,6 +54,7 @@ export function App() {
   const { session, sessionRef, busy, error, advance, vote, replace, startCase, configure, appeal, cancel } = court;
   const [panel, setPanel] = useState<Panel>(null);
   const [showHome, setShowHome] = useState(true);
+  const [filingPreset, setFilingPreset] = useState<CaseData>();
   const [autoPlaying, setAutoPlaying] = useState(false);
   const [replay, setReplay] = useState(false);
   const [replayRevision, setReplayRevision] = useState(0);
@@ -94,7 +94,7 @@ export function App() {
     try {
       const shared = readCaseShareUrl();
       if (shared) {
-        replace(shared); setReplay(shared.status === 'completed');
+        replace(shared); setReplay(shared.status === 'completed'); setShowHome(false);
         setNotice('已打开完整原案，包含已发生的庭审与证物。');
         restored = true;
       }
@@ -110,6 +110,7 @@ export function App() {
   useEffect(() => {
     if (!platform.game) return;
     const next = platform.game;
+    if (next.party) archived.current.add(next.session.id);
     replace(next.session);
     setHydrated(true);
     if (platformIdentity.current !== next.id) {
@@ -171,13 +172,13 @@ export function App() {
   }, [platform.gameId]);
 
   const openLocalPanel = (next: 'agents' | 'room' | 'config') => {
-    if (platform.gameId) { setNotice('本庭由服务器接续。请通过“席位与邀请”让 Agent 入场，通过本案固定链接邀请陪审。'); return; }
+    if (platform.gameId) return;
     openPanel(next);
   };
   const chooseCase = (caseData: CaseData) => {
     if (guest) { setNotice('你正在旁听房间，案件由房主同步。'); return; }
     if (platform.gameId) platform.leave();
-    setAutoPlaying(false); setReplay(false); setPanel('join'); setHydrated(true);
+    setAutoPlaying(false); setReplay(false); setPanel(null); setHydrated(true); setShowHome(false);
     startCase(applyCourtCast(caseData, getCourtCast(sessionRef.current.caseData).id));
   };
   const setCast = (castId: string) => {
@@ -258,30 +259,22 @@ export function App() {
     if (platform.gameId) platform.leave();
     setShowHome(true); setPanel(null);
   };
-  const prepareAgentGame = (caseData?: CaseData) => {
-    if (caseData) chooseCase(caseData);
-    else openPanel('custom');
+  const fileCase = (preset?: CaseData) => {
+    setFilingPreset(preset);
+    openPanel('file');
   };
-  const chooseJudge = (id: string) => {
-    if (platform.gameId) return;
-    if (getCourtCast(sessionRef.current.caseData).id === id) return;
-    setAutoPlaying(false); cancel();
-    startCase(applyCourtCast(sessionRef.current.caseData, id));
-  };
-  const createAgentGame = async (role: CourtRole, mode: PlatformMode, judgeMode?: CreateGameInput['judgeMode']) => {
+  const createPartyGame = async (input: CreateGameInput) => {
     setAutoPlaying(false); cancel(); setReplay(false);
-    const caseData = sessionRef.current.caseData;
-    await platform.create({ caseData, role, mode, judgeMode, judgeCastId: getCourtCast(caseData).id });
-    setPanel('join');
+    if (await platform.create(input)) {
+      setPanel(input.party?.plaintiff === 'external' ? 'join' : input.party?.defendant === 'friend' ? 'share' : null);
+    }
   };
   const inviteRole = async (id: string, role: CourtRole) => {
     setPanel('join');
     await platform.invite(id, role);
   };
-  const joinFromStage = (role: CourtRole) => {
-    setPanel('join');
-    if (platform.game) void inviteRole(platform.game.id, role);
-    else void createAgentGame(role, 'practice');
+  const respond = async (stance: string, useAgent: boolean) => {
+    if (await platform.respond(stance, useAgent) && useAgent) setPanel('join');
   };
   const watchGame = (id: string) => {
     cancel(); setPanel(null); setReplay(false); setAutoPlaying(true); platform.watch(id);
@@ -291,35 +284,64 @@ export function App() {
     if (await platform.vote(side)) setPanel(null);
   };
 
-  const stageSession = platform.game?.session || session;
+  const game = platform.game;
+  const party = game?.party;
+  const stageSession = game?.session || session;
+  const seated = !!platform.juror?.seated && platform.juror.id === game?.id;
+  const waitingForFriend = party?.defendant === 'friend' && game?.audience?.seated === 1 && game.status === 'waiting-jurors';
+  const shouldRespond = !!(waitingForFriend && platform.responseTicket && !seated);
+  const ownPartyInvitation = platform.ownInvitations.plaintiff || platform.ownInvitations.defendant;
+  const invitation = party ? ownPartyInvitation : platform.invitation;
+  const partyLinks = platform.partyLinks;
+  const defenseLink = waitingForFriend ? partyLinks?.defense : undefined;
+  const gameTitle = party ? (party.defendant === 'friend' ? '双人庭审' : '单人庭审') : game?.mode === 'practice' ? '我的 Agent + 系统陪练' : '公开庭审';
+  const gameStatus = game?.status === 'waiting-jury' && game.jury.outcome !== 'pending' ? 'waiting-verdict' : game?.status;
+  let statusText = gameStatus ? platformStatusLabels[gameStatus] : '';
+  if (party && game) {
+    if (waitingForFriend) statusText = '等朋友应诉。';
+    else if (gameStatus === 'waiting-agents') statusText = game.seats.plaintiff.status === 'reserved' ? '等原告的辩护人到场。' : '等被告的辩护人到场。';
+    else if (gameStatus === 'waiting-jury') statusText = '庭审结束，等当事人投票。';
+  }
+
   return <div className="court-app">
-    <Header onHome={goHome} onOpenLibrary={() => openPanel('library')} onBringAgent={() => openPanel('join')} onOpenLobby={openLobby} onOpenSelectCase={() => openPanel('cases')} onOpenCustomCase={() => openPanel('custom')} onOpenAgentHub={() => openLocalPanel('agents')} onOpenHistory={() => openPanel('history')} onOpenMultiplayer={() => openLocalPanel('room')} onRandomCase={() => { const choices = PRESET_CASES.filter(item => item.id !== session.caseData.id); chooseCase(choices[Math.floor(Math.random() * choices.length)] || PRESET_CASES[0]); }} onOpenCast={() => openPanel('cast')} onOpenConfig={() => openLocalPanel('config')} />
+    <Header onHome={goHome} onOpenLibrary={() => openPanel('library')} onFileCase={() => fileCase()} onOpenLobby={openLobby}
+      onOpenAgentHub={() => openLocalPanel('agents')} onOpenHistory={() => openPanel('history')} onOpenMultiplayer={() => openLocalPanel('room')}
+      onOpenCast={() => openPanel('cast')} onOpenConfig={() => openLocalPanel('config')} localTools={!showHome && !platform.gameId} />
     <main className="court-main">
-      {!platform.gameId && showHome && <PlatformHome games={platform.games} loading={platform.listLoading} error={platform.listError} onRefresh={() => { void platform.refreshList(); }} onCreate={prepareAgentGame} onWatch={watchGame} onJoin={(id, role) => { void inviteRole(id, role); }} onLibrary={() => openPanel('library')} />}
-      {platform.game && <div className="platform-game-strip"><div><strong>{platform.game.mode === 'practice' ? '我的 Agent + 系统陪练' : '公开庭审'}</strong><span>{platform.game.status === 'waiting-jury' && platform.game.jury.outcome !== 'pending' ? platformStatusLabels['waiting-verdict'] : platformStatusLabels[platform.game.status]}</span></div><span className={'platform-connection platform-connection--' + platform.connection} role="status">{platform.connection === 'live' ? '● 实时同步' : platform.connection === 'polling' ? '● 定时同步' : platform.connection === 'idle' ? '✓ 记录已同步' : '○ 正在连接'}</span><a href={publicGamePath(platform.game.id)}>本案固定链接</a><button className="court-button" onClick={() => openPanel('library')}>判决库</button><button className="court-button" onClick={() => openPanel('join')}>席位与邀请</button><button className="court-button" onClick={openLobby}>开庭大厅</button></div>}
-      {platform.gameId && !platform.game && <p className="court-notice" role="status">{platform.error || '正在打开服务端案卷…'}<button onClick={goHome}>返回大厅</button></p>}
-      {platform.error && platform.game && panel !== 'join' && <p className="court-runtime-error" role="alert">{platform.error}</p>}
+      {!platform.gameId && showHome && <PlatformHome games={platform.games} loading={platform.listLoading} error={platform.listError} onRefresh={() => { void platform.refreshList(); }} onCreate={fileCase} onWatch={watchGame} onJoin={(id, role) => { void inviteRole(id, role); }} onLibrary={() => openPanel('library')} />}
+      {game && !shouldRespond && <div className="platform-game-strip">
+        <div><strong>{gameTitle}{party && (party.visibility === 'invite' ? ' · 仅持链接的人可旁听' : ' · 公开旁听')}</strong><span role="status">{statusText}</span></div>
+        <span className={'platform-connection platform-connection--' + platform.connection} role="status">{platform.connection === 'live' ? '● 实时同步' : platform.connection === 'polling' ? '● 定时同步' : platform.connection === 'idle' ? '✓ 记录已同步' : '○ 正在连接'}</span>
+        {party ? <>
+          {partyLinks && <button className={defenseLink ? 'court-button court-button--primary' : 'court-button'} onClick={() => openPanel('share')}>{defenseLink ? '邀请朋友应诉' : '分享庭审'}</button>}
+          {ownPartyInvitation && <button className="court-button" onClick={() => openPanel('join')}>我的出庭邀请</button>}
+        </> : <>
+          <a href={publicGamePath(game.id)}>本案固定链接</a>
+          <button className="court-button" onClick={() => openPanel('join')}>席位与邀请</button>
+        </>}
+      </div>}
+      {game && shouldRespond && <PartyResponse key={game.id} game={game} busy={platform.responseBusy} error={platform.responseError} roomUrl={partyLinks?.room} onRespond={respond} />}
+      {platform.gameId && !platform.game && <p className="court-notice" role="status">{platform.error || '正在打开庭审…'}<button onClick={goHome}>返回大厅</button></p>}
+      {platform.error && platform.game && panel !== 'join' && panel !== 'file' && <p className="court-runtime-error" role="alert">{platform.error}</p>}
       {(notice || storageError) && <div className="court-notice" role="status"><span>{storageError || notice}</span><button onClick={() => { setNotice(undefined); setStorageError(undefined); }} aria-label="关闭提示">×</button></div>}
       {inRoom && <div className="court-room-status"><span className="speaking-dot" />陪审房间 {room.roomId} · {room.isHost ? '你是房主陪审员' : '你是旁听陪审员'} · {room.status === 'connecting' ? '连接中' : room.isHost ? room.peers.length + ' 位朋友已加入' : '已同步房主庭审'}<button onClick={() => openPanel('room')}>房间详情</button></div>}
-      {((!platform.gameId && !showHome) || platform.game) && <CourtStage key={stageSession.id + ':' + replayRevision} session={stageSession} busy={busy} error={error} autoPlaying={autoPlaying && !modalOpen} onAutoPlayingChange={setAutoPlaying} onAdvance={advance} onOpenVote={openVote} onOpenCast={() => openPanel('cast')} onOpenAgents={() => openPanel('join')} onOpenVerdict={openVerdict} guest={guest} replay={replay} platformGame={platform.game} onJoinRole={joinFromStage}
-        juror={platform.game?.audience ? { seated: !!platform.juror?.seated, busy: !!platform.juror?.busy, error: platform.juror?.error, join: () => { void platform.juryAction(); }, react: platform.juryAction } : undefined} />}
-      {!showHome && !platform.gameId && <div className="court-play-rule"><Scale size={19} /><p>想派你的 Agent 出庭？</p><button onClick={() => openPanel('join')}>派 Agent 入场</button></div>}
+      {((!platform.gameId && !showHome) || (game && !shouldRespond)) && <CourtStage key={stageSession.id + ':' + replayRevision} session={stageSession} busy={!game && busy} error={game ? undefined : error} autoPlaying={autoPlaying && !modalOpen} onAutoPlayingChange={setAutoPlaying} onAdvance={advance} onOpenVote={openVote} onOpenCast={() => openPanel('cast')} onOpenAgents={() => openLocalPanel('config')} onOpenVerdict={openVerdict} guest={!game && guest} replay={replay} platformGame={game} onJoinRole={game && !party ? role => { void inviteRole(game.id, role); } : undefined}
+        juror={game?.audience || party ? { seated, busy: !!platform.juror?.busy, error: platform.juror?.error, join: party ? undefined : () => { void platform.juryAction(); }, react: platform.juryAction } : undefined} />}
     </main>
-    <footer className="court-footer">互联网最高破事法庭 · 沉浸式辩论裁决 · 任何破事皆可开庭 <span>法槌一响，破事退散</span><a href="/agents/guide.md" target="_blank" rel="noreferrer">Agent 出庭规程</a></footer>
-    <CaseSelectModal isOpen={panel === 'cases'} onClose={closePanel} onSelectCase={chooseCase} onOpenCustom={() => setPanel('custom')} />
-    <CustomCaseModal isOpen={panel === 'custom'} onClose={closePanel} onCaseCreated={chooseCase} />
+    {panel === 'file' && <PartyCaseModal preset={filingPreset} busy={platform.busy} error={platform.error} onClose={() => { if (!platform.busy) closePanel(); }} onSubmit={createPartyGame} />}
+    {panel === 'share' && party && partyLinks && <PartyShareModal visibility={party.visibility} links={{ room: partyLinks.room, defense: defenseLink }} onClose={closePanel} />}
     <CastSelectModal isOpen={panel === 'cast'} onClose={closePanel} currentCastId={getCourtCast(session.caseData).id} onSelect={setCast} hasProgress={session.turns.length > 0} readOnly={!!platform.gameId} />
     <AgentConfigModal isOpen={panel === 'config'} onClose={closePanel} currentConfig={court.config} currentMode={session.mode} hasProgress={session.turns.length > 0} onApply={applyConfig} />
     <JuryVoteModal isOpen={!platform.game && panel === 'jury' && session.status === 'awaiting-ruling'} onClose={closePanel} currentCase={session.caseData} localVote={localVote} tally={tally} participants={participants} guest={guest} multiplayer={multiplayer} onVote={castVote} onFinalize={finalizeVotes} onRestartVote={restartVotes} />
-    <VerdictModal isOpen={panel === 'verdict'} onClose={closePanel} session={session} onStartAppeal={platform.game ? undefined : viewAppeal} shareUrl={platform.game ? new URL(publicGamePath(platform.game.id), window.location.origin).href : undefined} onPlayAgain={() => setPanel('cases')} />
+    <VerdictModal isOpen={panel === 'verdict'} onClose={closePanel} session={stageSession} onStartAppeal={game ? undefined : viewAppeal} shareUrl={party ? partyLinks?.room ?? null : game ? new URL(publicGamePath(game.id), window.location.origin).href : undefined} juryOutcome={game?.jury.outcome} onPlayAgain={() => fileCase()} />
     <AgentHubModal isOpen={panel === 'agents'} onClose={closePanel} session={session} connection={bridge?.connection} connecting={bridgeConnecting} error={bridgeError} onConnect={() => { void connectBridge(); }} onDisconnect={() => { void disconnectBridge(); }} />
     <HistoryArchiveModal isOpen={panel === 'history'} onClose={closePanel} onReplayTrial={record => replayRecord(record)} onViewHistoricalVerdict={record => replayRecord(record, true)} />
     <MultiplayerModal isOpen={panel === 'room'} onClose={closePanel} currentCase={session.caseData} session={session} onMultiplayerConnected={() => { setAutoPlaying(false); cancel(); if (multiplayerService.getState().isHost) setHydrated(true); }} />
-    <AgentJoinModal isOpen={panel === 'join'} onClose={closePanel} caseTitle={session.caseData.title} game={platform.game} invitation={platform.invitation} ownInvitations={platform.ownInvitations} creating={platform.busy} error={platform.error} onCreate={(role, mode, judgeMode) => { void createAgentGame(role, mode, judgeMode); }} onInvite={role => { if (platform.game) void inviteRole(platform.game.id, role); }} onWatch={closePanel} currentCastId={getCourtCast(session.caseData).id} onChooseCast={chooseJudge} onRelay={() => setPanel('relay')} />
-    <Modal isOpen={panel === 'lobby'} onClose={closePanel} title="开庭大厅" description="缺席位的庭，等你的 Agent 来吵个明白。" className="court-lobby-modal"><CourtLobby games={platform.games} loading={platform.listLoading} error={platform.listError} onWatch={watchGame} onJoin={(id, role) => { void inviteRole(id, role); }} onRefresh={() => { void platform.refreshList(); }} /></Modal>
+    <AgentJoinModal isOpen={panel === 'join'} onClose={closePanel} game={game} invitation={invitation} ownInvitations={platform.ownInvitations} busy={platform.busy} error={platform.error} onInvite={role => { if (game && !party) void inviteRole(game.id, role); }} onRelay={() => setPanel('relay')} />
+    <Modal isOpen={panel === 'lobby'} onClose={closePanel} title="旁听大厅" className="court-lobby-modal"><CourtLobby games={platform.games} loading={platform.listLoading} error={platform.listError} onWatch={watchGame} onJoin={(id, role) => { void inviteRole(id, role); }} onRefresh={() => { void platform.refreshList(); }} /></Modal>
     <JudgmentLibrary isOpen={panel === 'library'} onClose={closePanel} onWatch={watchGame} />
-    {platform.game && platform.invitation && <AgentRelayModal isOpen={panel === 'relay'} onClose={() => setPanel('join')} game={platform.game} invitation={platform.invitation} onAccepted={platform.applyGame} />}
-    {platform.game && <PlatformJuryModal isOpen={panel === 'jury'} onClose={closePanel} game={platform.game} localVote={platform.localVote} voting={platform.voting} error={platform.voteError} onVote={side => { void castPlatformVote(side); }} seated={platform.game.audience ? !!platform.juror?.seated : undefined} />}
+    {game && invitation && <AgentRelayModal isOpen={panel === 'relay'} onClose={() => setPanel('join')} game={game} invitation={invitation} onAccepted={platform.applyGame} />}
+    {game && <PlatformJuryModal isOpen={panel === 'jury'} onClose={closePanel} game={game} localVote={platform.localVote} voting={platform.voting} error={platform.voteError} onVote={side => { void castPlatformVote(side); }} seated={game.audience || party ? seated : undefined} />}
     <Modal isOpen={!!legacyRecord} onClose={() => setLegacyRecord(undefined)} title="旧版判决存档"><div className="legacy-record"><p>此记录来自早期案卷，未记录完整发言轨迹。</p><h3>{legacyRecord?.caseData.title}</h3><p>{legacyRecord?.verdictResult}</p></div></Modal>
   </div>;
 }

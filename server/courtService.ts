@@ -175,6 +175,7 @@ export class CourtService {
   }
   create(input: CreateGameInput): CreateGameResult {
     this.open(); const r = role(input.role);
+    if (input.party !== undefined) return fail(400, 'WORKER_REQUIRED', '单人庭和双人庭请在 Worker 版开。');
     const createKey = input.clientActionId ? hash(text(input.clientActionId, '创建操作编号')) : undefined;
     const fingerprint = JSON.stringify(input);
     const prior = createKey ? this.creations.get(createKey) : undefined;

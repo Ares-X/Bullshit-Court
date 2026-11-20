@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Copy, Check, RotateCcw, Scale } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import type { CourtSession } from '../types';
+import type { PublicGame } from '../types/platform';
 import { getCourtRoleProfile } from '../utils/courtRuntime';
 import { createCaseShareUrl } from '../utils/caseShare';
 import { Modal } from './Modal';
@@ -11,10 +12,11 @@ interface VerdictModalProps {
   onClose: () => void;
   session: CourtSession;
   onStartAppeal?: () => void;
-  shareUrl?: string;
+  shareUrl?: string | null;
+  juryOutcome?: PublicGame['jury']['outcome'];
   onPlayAgain: () => void;
 }
-export function VerdictModal({ isOpen, onClose, session, onStartAppeal, onPlayAgain, shareUrl }: VerdictModalProps) {
+export function VerdictModal({ isOpen, onClose, session, onStartAppeal, onPlayAgain, shareUrl, juryOutcome }: VerdictModalProps) {
   const posterRef = useRef<HTMLDivElement>(null);
   const fallbackRef = useRef<HTMLTextAreaElement>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -24,7 +26,7 @@ export function VerdictModal({ isOpen, onClose, session, onStartAppeal, onPlayAg
   const [manualText, setManualText] = useState('');
   useEffect(() => { setCopied(false); setCopyError(''); setManualText(''); setExportError(''); }, [session.id]);
   const share = useMemo(() => {
-    if (!isOpen || !session.ruling) return { url: '', error: '' };
+    if (!isOpen || !session.ruling || shareUrl === null) return { url: '', error: '' };
     try { return { url: shareUrl || createCaseShareUrl(session), error: '' }; }
     catch (cause) { return { url: '', error: cause instanceof Error ? cause.message : '无法创建完整案卷链接' }; }
   }, [isOpen, session, shareUrl]);
@@ -33,7 +35,8 @@ export function VerdictModal({ isOpen, onClose, session, onStartAppeal, onPlayAg
   const judge = getCourtRoleProfile(caseData, 'judge');
   const date = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
   const winnerName = ruling?.winner === 'plaintiff' ? `原告 ${caseData.plaintiffName}` : ruling?.winner === 'defendant' ? `被告 ${caseData.defendantName}` : '双方持平';
-  const voteName = session.juryVote === 'plaintiff' ? `原告 ${caseData.plaintiffName}` : session.juryVote === 'defendant' ? `被告 ${caseData.defendantName}` : '尚无票决记录';
+  const decision = juryOutcome ?? session.juryVote;
+  const voteName = decision === 'draw' ? '双方平票' : decision === 'plaintiff' ? `原告 ${caseData.plaintiffName}` : decision === 'defendant' ? `被告 ${caseData.defendantName}` : '尚无票决记录';
   const selectedEvidence = session.evidences.filter(item => ruling?.evidenceIds.includes(item.id));
   const download = async () => {
     const node = posterRef.current; if (!node || !ruling || isExporting) return;
@@ -89,7 +92,7 @@ export function VerdictModal({ isOpen, onClose, session, onStartAppeal, onPlayAg
       <div className="px-5 pb-5 space-y-3 text-sm text-slate-700">
         {share.url && <details><summary className="cursor-pointer font-bold">完整案卷链接 · 可手动复制</summary><p className="text-xs text-slate-500 py-2">{shareUrl ? '这是本案的服务端固定链接，旁听和回放读取同一份记录。' : '本案专属电子传票与判词链接已就绪，速速发给当事人签收！'}</p><textarea aria-label="完整案卷链接" readOnly value={share.url} rows={3} onFocus={e => e.currentTarget.select()} className="w-full rounded-xl border border-slate-300 bg-white p-3 text-xs break-all" /></details>}
         {copyError && manualText && <label className="block">手动复制分享文字<textarea ref={fallbackRef} readOnly value={manualText} rows={6} onFocus={e => e.currentTarget.select()} className="mt-2 w-full rounded-xl border border-slate-300 bg-white p-3 text-xs" /></label>}
-        <div className="flex flex-wrap gap-2 pt-2">{onStartAppeal && <button className={button} onClick={onStartAppeal}>不服判决？火速提起二审上诉！</button>}<button className={button} onClick={onPlayAgain}><RotateCcw size={16} />再审一起奇葩大案！</button></div>
+        <div className="flex flex-wrap gap-2 pt-2">{onStartAppeal && <button className={button} onClick={onStartAppeal}>不服判决？火速提起二审上诉！</button>}<button className={button} onClick={onPlayAgain}><RotateCcw size={16} />再起诉一件事</button></div>
       </div>
     </>}
   </Modal>;

@@ -12,6 +12,8 @@
 
 入场后读取最新状态中的 `game.session.caseData.agents[本席角色]`：使用其中的 `name` 与 `persona` 扮演本席，不要只读通用角色规程就让全庭变成同一种口吻。原告、被告仍是 `caseData.plaintiffName`、`caseData.defendantName` 对应的当事人本人，始终第一人称；像素外观与比喻不是新增案件事实。
 
+看见 `position`，就是玩家交给你这席的话。照这个意思开口，接住对方下一句。
+
 法官还要读取选中人物的本站提示词。由 `caseData.agents.judge.id` 的 `cast:<id>:judge` 取中间的 `<id>`，在邀请所属站点打开 `/agents/judges/<id>.md`。包薯是 `everyday`，咕判是 `city`，骨班是 `night`，铁面赛博包公是 `gavel`，和事佬咪审是 `chill`。没有对应人物文件时，按本席 `persona` 和通用法官规程出庭。
 
 人物提示词规定说话风格，总规程和角色规程规定出庭权限与轮序。所有人物都必须遵守同一事实标准：可以把争议比作瓜子壳，不能声称现场发现了不存在的瓜子壳；可以有口头禅，不能每句话都塞梗。每轮接住一个具体说法，给一个清楚要点和一个笑点即可。
@@ -69,6 +71,8 @@ COURT_SEAT_TOKEN='替换为私下保存的seatToken' node ./court-client.mjs --j
 Agent 和陪审团都坐齐才开庭。看到 `waiting-agents` 或 `waiting-jurors` 就用 `court_wait`。开庭到封卷按「法官、原告、被告」走三遍，最后由法官第十轮封卷。真人在网页入席、互动和投票。
 
 当 `game.verdict.flow` 为 `post-jury`，第十轮只总结双方理由和证据缺口，宣布把案卷交给陪审团。看到 `waiting-jury` 时等待。若陪审结果产生多数、状态变为 `waiting-verdict`，原法官读票数、胜方与完整案卷，收到 `submit_verdict` 后现写第十一轮，按[法官规程](./roles/judge.md)提交。若到期票数不足或平票，场次会以未决结束。
+
+当 `game.verdict.flow` 为 `prepared`，你只管打完自己的三轮。法官封卷后，玩家投票，法官按票宣判。
 
 早期开庭的场次按服务器返回的动作走。`prepare_verdicts` 表示需调用 `court_prepare_verdicts` 给出“原告胜”和“被告胜”各一份完整判词，服务器按陪审结果发布其中一份。HTTP 接力用入场页列出的 `/verdicts`；每份判词使用 `text`、可选 `emotion`、`responseTo`、`evidenceIds` 和对应胜方的 `ruling`。
 

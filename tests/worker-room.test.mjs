@@ -436,6 +436,180 @@ try {
     assert.equal(model.mock.callCount(), 6);
   });
 
+  const partyCase = (options = {}) => ({
+    caseData: PRESET_CASES[0], role: 'plaintiff',
+    party: { visibility: 'public', plaintiff: 'builtin', defendant: 'builtin', demand: '把最后一块还给我。', ...options },
+  });
+
+  function mockPartyModel(t, rejectFirstSeal = false) {
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+      assert.match(String(url), /^https:\/\/openrouter\.ai\/api\/v1\/chat\/completions$/);
+      const request = JSON.parse(options.body);
+      assert.ok(request.models.every(model => model.endsWith(':free')));
+      assert.deepEqual(request.provider.max_price, { prompt: 0, completion: 0, request: 0 });
+      const facts = JSON.parse(request.messages.find(message => message.role === 'user').content);
+      requests.push(facts);
+      assert.equal(facts.juryVote, null);
+      const evidenceIds = facts.evidence.map(item => item.id);
+      const speech = turn(`第 ${facts.transcript.length + 1} 轮公开台词。`, { speaker: facts.currentSpeaker, evidenceIds });
+      const branch = (side, invalid = false) => ({
+        text: `${side}专用第十一轮。`, reason: invalid ? '' : '这一句说到了点上。',
+        lastLine: `${side}说完了。`, evidenceId: evidenceIds[0],
+      });
+      const payload = facts.currentPhase === 'deliberation' ? {
+        seal: speech.text, plaintiff: branch('原告'), defendant: branch('被告', rejectFirstSeal),
+      } : speech;
+      if (facts.currentPhase === 'deliberation') rejectFirstSeal = false;
+      return Response.json({ model: request.models[0], usage: { cost: 0 }, choices: [{ message: { content: JSON.stringify(payload) } }] });
+    });
+    return requests;
+  }
+
+  test('invite-only solo seals both branches atomically and publishes only the chosen branch', async t => {
+    const { room, env, storage } = makeRoom({ OPENROUTER_API_KEY: 'test-key', COURT_VISITOR_SECRET: 'test-visitor-secret' });
+    env.COURT_ROOM = { idFromName: id => id, get: () => ({ fetch: (url, init) => room.fetch(new Request(url, init)) }) };
+    const origin = 'https://court.test';
+    const browser = (path, init) => worker.fetch(new Request(origin + path, init), env);
+    const visitor = async () => {
+      const response = await browser('/api/visitor');
+      return { cookie: response.headers.get('set-cookie').split(';')[0], 'x-court-csrf': (await ok(response)).csrfToken };
+    };
+    const host = await visitor();
+    const spectator = await visitor();
+    const post = (path, body, headers) => browser(path, {
+      method: 'POST', headers: { origin, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
+    });
+    const input = { ...partyCase({ visibility: 'invite', defense: '我把盘子洗了。' }), clientActionId: 'party-private' };
+    await fails(await post('/api/games', input, {}), 'CSRF');
+    const creations = await Promise.all([post('/api/games', input, host), post('/api/games', input, host)]);
+    const [created, replay] = await Promise.all(creations.map(ok));
+    assert.equal(created.game.id, replay.game.id);
+    assert.equal(created.roomKey, replay.roomKey);
+    assert.equal(created.ownerToken, replay.ownerToken);
+    assert.equal(created.invitation, undefined);
+    assert.equal(created.defenseInvitation, undefined);
+    assert.equal(storage.map.get('create').result.roomKey, undefined);
+    assert.deepEqual(created.game.audience, { seated: 1, required: 1, reactions: [] });
+    assert.match(created.game.session.caseData.agents.judge.id, /^cast:(everyday|city|night|gavel|chill):judge$/);
+    await fails(await post('/api/games', input, spectator), 'ACTION_CONFLICT');
+    const id = `/api/games/${created.game.id}`;
+    const access = { 'x-court-room-key': created.roomKey };
+    for (const suffix of ['', '/jury-seat', '/events', '/wait?timeout=0']) await fails(await browser(id + suffix), 'NOT_FOUND');
+    await fails(await browser(id, { headers: { 'x-court-room-key': '0'.repeat(64) } }), 'NOT_FOUND');
+    await fails(await post(id + '/jury-seat', {}, spectator), 'NOT_FOUND');
+    await fails(await post(id + '/jury-seat', {}, { ...spectator, ...access }), 'JURY_SEAT_REQUIRED');
+    const ballot = { winner: 'plaintiff', clientActionId: 'solo-vote' };
+    await fails(await post(id + '/votes', ballot, { ...host, ...access }), 'VOTE_CLOSED');
+
+    const abort = new AbortController();
+    const stream = await browser(id + '/events?key=' + created.roomKey, { signal: abort.signal });
+    assert.equal(stream.status, 200);
+    const reader = stream.body.getReader();
+    try { assert.match(new TextDecoder().decode((await reader.read()).value), /event: game/); }
+    finally { abort.abort(); await reader.cancel(); }
+
+    const log = t.mock.method(console, 'error', () => {});
+    const requests = mockPartyModel(t, true);
+    for (let i = 0; i < 10; i++) await room.alarm();
+    const snapshot = () => browser(id, { headers: access }).then(ok);
+    const failedSeal = await snapshot();
+    assert.equal(log.mock.callCount(), 1);
+    assert.equal(failedSeal.session.turns.length, 9);
+    assert.equal(failedSeal.verdict.prepared, false);
+    await fails(await post(id + '/votes', ballot, { ...host, ...access }), 'VOTE_CLOSED');
+    const retryAt = await storage.getAlarm();
+    room.now = () => retryAt;
+    await room.alarm();
+    const sealed = await snapshot();
+    assert.equal(sealed.status, 'waiting-jury');
+    assert.equal(sealed.session.turns.length, 10);
+    assert.equal(sealed.verdict.prepared, true);
+    assert.doesNotMatch(JSON.stringify(sealed), /原告专用第十一轮|被告专用第十一轮/);
+    assert.deepEqual(requests.map(facts => facts.position), requests.map(facts =>
+      facts.currentSpeaker === 'plaintiff' ? input.party.demand : facts.currentSpeaker === 'defendant' ? input.party.defense : undefined));
+    await fails(await post(id + '/votes', ballot, host), 'NOT_FOUND');
+    await fails(await post(id + '/votes', ballot, { ...spectator, ...access }), 'JURY_SEAT_REQUIRED');
+    const completed = await ok(await post(id + '/votes', ballot, { ...host, ...access }));
+    assert.equal(completed.session.turns.length, 11);
+    assert.equal(completed.session.ruling.winner, 'plaintiff');
+    assert.match(completed.session.turns.at(-1).text, /原告 1 票，被告 0 票。原告专用第十一轮/);
+    assert.doesNotMatch(JSON.stringify(completed), /被告专用第十一轮|本庭支持被告/);
+    assert.deepEqual(await ok(await browser(id + '/jury-seat', { headers: { ...host, ...access } })), { seated: true, vote: 'plaintiff' });
+    assert.equal(await storage.getAlarm(), null);
+    await room.alarm();
+    assert.equal(requests.length, 11, 'ten rounds and one seal retry, with no model request after voting');
+    assert.ok(!env.DB.writes.some(write => write.sql.includes('INSERT INTO games')), 'private room never projects to D1');
+  });
+
+  test('duo takes one friend reply and counts two simultaneous ballots into a reloadable draw', async t => {
+    const { room, env, storage } = makeRoom({ OPENROUTER_API_KEY: 'test-key' });
+    const id = '/partyduoroom';
+    const created = await ok(await call(room, '/create', { method: 'POST', body: { gameId: id.slice(1), visitorId: 'host', input: partyCase({ defendant: 'friend' }) } }));
+    assert.equal(created.game.status, 'waiting-jurors');
+    assert.equal(await storage.getAlarm(), null);
+    const ticket = created.defenseInvitation.ticket;
+    const respond = (visitorId, stance) => call(room, id + '/respond', { method: 'POST', body: { visitorId, ticket, stance } });
+    await fails(await respond('host', '原告也想坐答辩席。'), 'FRIEND_REQUIRED');
+    const candidates = ['friend-one', 'friend-two'];
+    const replies = await Promise.all(candidates.map(visitorId => respond(visitorId, `我是${visitorId}。`)));
+    const accepted = replies.findIndex(reply => reply.ok);
+    assert.notEqual(accepted, -1);
+    await fails(replies[1 - accepted], 'DEFENSE_SEAT_TAKEN');
+    const response = await ok(replies[accepted]);
+    const friend = candidates[accepted];
+    assert.equal(response.status, 'running');
+    assert.equal(response.audience.seated, 2);
+    assert.equal(response.seats.defendant.source, 'builtin');
+    await fails(await call(room, id + '/jury-seat', { method: 'POST', body: { visitorId: 'spectator' } }), 'JURY_SEAT_REQUIRED');
+    const requests = mockPartyModel(t);
+    for (let i = 0; i < 10; i++) await room.alarm();
+    assert.deepEqual(requests.filter(facts => facts.currentSpeaker === 'defendant').map(facts => facts.position), Array(3).fill(`我是${friend}。`));
+    const vote = (visitorId, winner) => call(room, id + '/votes', { method: 'POST', body: { visitorId, winner, clientActionId: 'duo-' + visitorId } });
+    await fails(await vote('spectator', 'plaintiff'), 'JURY_SEAT_REQUIRED');
+    const ballots = await Promise.all([vote('host', 'plaintiff'), vote(friend, 'defendant')]);
+    await Promise.all(ballots.map(ok));
+    const completed = await ok(await call(new CourtRoom({ storage }, env), id));
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.jury.outcome, 'draw');
+    assert.equal(completed.session.ruling.winner, 'draw');
+    assert.equal(completed.session.turns.length, 11);
+    assert.match(completed.session.turns.at(-1).text, /原告 1 票，被告 1 票/);
+    assert.equal(completed.session.turns.at(-1).speakerName, created.game.seats.judge.agentName);
+    assert.doesNotMatch(JSON.stringify(completed), /原告专用第十一轮|被告专用第十一轮/);
+    assert.equal(requests.length, 10);
+    const card = JSON.parse(env.DB.writes.filter(write => write.sql.includes('INSERT INTO games')).at(-1).bindings[8]);
+    assert.equal(card.ruling.winner, 'draw');
+  });
+
+  test('duo activates the friend Agent ticket only after the browser accepts the invite', async () => {
+    const { room, storage } = makeRoom({ OPENROUTER_API_KEY: 'test-key' });
+    const id = '/partyagentroom';
+    const input = partyCase({ visibility: 'invite', defendant: 'friend', plaintiff: 'external' });
+    const created = await ok(await call(room, '/create', { method: 'POST', body: { input, gameId: id.slice(1), visitorId: 'host' } }));
+    const ticket = created.defenseInvitation.ticket;
+    const agentPath = invite => `${id}/ticket/${ticketSecret(invite.ticket)}`;
+    const claim = invite => call(room, agentPath(invite) + '/claim', { method: 'POST', body: { agentName: invite.role, clientActionId: 'join-' + invite.role } });
+    await fails(await claim(created.defenseInvitation), 'NOT_FOUND');
+    const context = await ok(await call(room, agentPath(created.invitation) + '/context'));
+    assert.equal(context.position, input.party.demand);
+    const plaintiff = await ok(await claim(created.invitation));
+    assert.equal(plaintiff.state.position, input.party.demand);
+    assert.equal(await storage.getAlarm(), null);
+    const reserved = await ok(await call(room, id + '/respond', {
+      method: 'POST', headers: { 'x-court-room-key': created.roomKey }, body: { visitorId: 'friend', ticket, useAgent: true },
+    }));
+    assert.equal(reserved.status, 'waiting-agents');
+    assert.equal(reserved.audience.seated, 2);
+    assert.equal(reserved.seats.defendant.status, 'reserved');
+    assert.equal(await storage.getAlarm(), null);
+    const defendant = await ok(await claim(created.defenseInvitation));
+    assert.equal(defendant.state.position, undefined);
+    assert.equal(defendant.state.game.status, 'running');
+    assert.equal(defendant.state.game.currentRole, 'judge');
+    assert.ok(await storage.getAlarm());
+  });
+
   test('seat tokens cannot impersonate other roles or games', async () => {
     const { room } = makeRoom();
     const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'plaintiff', mode: 'practice', clientActionId: 'create-3' }, gameId: 'room777777' } }));

@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CourtRole } from '../types';
 import type { CreateGameInput, GameCard, GameInvitation, PublicGame, JuryReactionInput, JuryWinner } from '../types/platform';
-import { newActionId, platformClient, PlatformRequestError, publicGamePath } from '../utils/platformClient';
+import { newActionId, platformClient, PlatformRequestError, publicGamePath, rememberRoomKey, roomAccessKey, roomEventsPath, roomSharePath } from '../utils/platformClient';
 
 const routeId = () => /^\/games\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname)?.[1];
 type LocalInvitations = Partial<Record<CourtRole, GameInvitation>>;
 const invitationKey = (id: string) => 'internet-court:invitation:' + id;
 const invitationsKey = (id: string) => 'internet-court:invitations:' + id;
+const defenseKey = (id: string) => 'internet-court:defense:' + id;
+const restoreDefense = (id: string) => {
+  try { return sessionStorage.getItem(defenseKey(id)) || undefined; } catch { return undefined; }
+};
 const validInvitation = (value: unknown): value is GameInvitation => {
   if (!value || typeof value !== 'object') return false;
   const item = value as GameInvitation;
@@ -37,6 +41,7 @@ const restoreInvitation = (id: string): GameInvitation | undefined => {
 const message = (cause: unknown) => cause instanceof Error ? cause.message : '庭审服务暂未响应。';
 export function useCourtPlatform() {
   const [gameId, setGameId] = useState<string | undefined>(routeId);
+  const [routeHash, setRouteHash] = useState(() => window.location.hash);
   const [game, setGame] = useState<PublicGame>();
   const gameRef = useRef(game);
   const watchedId = useRef(gameId);
@@ -68,6 +73,9 @@ export function useCourtPlatform() {
   const [voteError, setVoteError] = useState<string>();
   const [localVote, setLocalVote] = useState<JuryWinner>();
   const [juror, setJuror] = useState<{ id: string; seated: boolean; busy?: boolean; error?: string }>();
+  const [responseBusy, setResponseBusy] = useState(false);
+  const [responseError, setResponseError] = useState<string>();
+  const defenseInvites = useRef(new Map<string, string>());
   const juryRequest = useRef<AbortController>();
   const pendingReaction = useRef<{ id: string; content: string; actionId: string }>();
   const owners = useRef(new Map<string, string>());
@@ -82,29 +90,35 @@ export function useCourtPlatform() {
     if (gameRef.current?.id === next.id && gameRef.current.revision >= next.revision) return;
     gameRef.current = next; setGame(next);
   }, []);
-  const watch = useCallback((id: string) => {
+  const watch = useCallback((id: string, key?: string) => {
     if (watchedId.current !== id) requestRef.current?.abort();
     watchedId.current = id;
     if (gameRef.current?.id !== id) { const retained = savedInvitations(id); setOwnInvitations(retained); setInvitation(restoreInvitation(id) || Object.values(retained)[0]); setLocalVote(undefined); setVoteError(undefined); gameRef.current = undefined; setGame(undefined); }
-    setGameId(id); setError(undefined);
-    if (window.location.pathname !== publicGamePath(id)) window.history.pushState(null, '', publicGamePath(id));
+    setGameId(id); setError(undefined); setResponseError(undefined);
+    if (window.location.pathname !== publicGamePath(id)) window.history.pushState(null, '', roomSharePath(id, undefined, key));
+    setRouteHash(window.location.hash);
   }, [savedInvitations]);
+  const roomKey = gameId ? roomAccessKey(gameId) : undefined;
+  const responseTicket = gameId && new URLSearchParams(routeHash.slice(1)).get('respond') || undefined;
   const hasAudience = !!game?.audience;
   useEffect(() => {
     if (!gameId || !hasAudience) return;
     const controller = new AbortController();
-    void platformClient.jurySeat(gameId, controller.signal).then(({ seated }) => {
+    if (roomKey) rememberRoomKey(gameId, roomKey);
+    void platformClient.jurySeat(gameId, controller.signal).then(({ seated, vote }) => {
       if (!controller.signal.aborted && watchedId.current === gameId) {
         setJuror(previous => previous?.id === gameId ? { ...previous, seated: previous.seated || seated } : { id: gameId, seated });
+        if (vote) setLocalVote(vote);
       }
     }).catch(() => { /* The next seat action checks membership on the server. */ });
     return () => { controller.abort(); juryRequest.current?.abort(); juryRequest.current = undefined; };
-  }, [gameId, hasAudience]);
+  }, [gameId, hasAudience, roomKey]);
   const leave = useCallback(() => {
     watchedId.current = undefined;
     requestRef.current?.abort(); setGameId(undefined); gameRef.current = undefined; setGame(undefined);
     setInvitation(undefined); setOwnInvitations({}); setLocalVote(undefined); setError(undefined); setVoteError(undefined);
     window.history.pushState(null, '', '/');
+    setRouteHash('');
   }, []);
   const refreshList = useCallback(async () => {
     listRequest.current?.abort(); const controller = new AbortController(); listRequest.current = controller;
@@ -118,14 +132,17 @@ export function useCourtPlatform() {
     disposed.current = false;
     const pop = () => {
       const id = routeId();
+      setRouteHash(window.location.hash);
       if (id === watchedId.current) return;
       requestRef.current?.abort();
       watchedId.current = id;
       const retained = id ? savedInvitations(id) : {};
       gameRef.current = undefined; setGame(undefined); setGameId(id); setOwnInvitations(retained); setInvitation(id ? restoreInvitation(id) || Object.values(retained)[0] : undefined); setLocalVote(undefined); setVoteError(undefined); setError(undefined);
+      setResponseError(undefined);
     };
     window.addEventListener('popstate', pop);
-    return () => { disposed.current = true; requestRef.current?.abort(); listRequest.current?.abort(); window.removeEventListener('popstate', pop); };
+    window.addEventListener('hashchange', pop);
+    return () => { disposed.current = true; requestRef.current?.abort(); listRequest.current?.abort(); window.removeEventListener('popstate', pop); window.removeEventListener('hashchange', pop); };
   }, [savedInvitations]);
   useEffect(() => {
     if (!gameId) { setConnection('idle'); return; }
@@ -155,7 +172,7 @@ export function useCourtPlatform() {
       // One push stream for the selected game. The fallback starts only when it fails.
       try {
         const after = gameRef.current?.id === gameId ? gameRef.current.revision : 0;
-        source = new EventSource('/api/games/' + encodeURIComponent(gameId) + '/events?after=' + after);
+        source = new EventSource(roomEventsPath(gameId, after));
         source.onopen = () => { if (active) { setConnection('live'); setError(undefined); } };
         source.addEventListener('game', event => {
           if (!active) return;
@@ -171,7 +188,7 @@ export function useCourtPlatform() {
       } catch { fallback(); }
     }
     return () => { active = false; source?.close(); current?.abort(); window.clearTimeout(timer); };
-  }, [gameId, apply]);
+  }, [gameId, roomKey, apply]);
 
   const create = useCallback(async (input: Omit<CreateGameInput, 'clientActionId'>) => {
     if (pendingOperation.current) return false;
@@ -182,8 +199,18 @@ export function useCourtPlatform() {
     try {
       const result = await platformClient.create({ ...input, clientActionId: pendingCreate.current.id }, controller.signal);
       if (disposed.current || controller.signal.aborted) return false;
-      owners.current.set(result.game.id, result.ownerToken);
-      watch(result.game.id); apply(result.game); rememberInvitation(result.game.id, result.invitation); pendingCreate.current = undefined;
+      const id = result.game.id;
+      owners.current.set(id, result.ownerToken);
+      if (result.roomKey) rememberRoomKey(id, result.roomKey);
+      if (result.defenseInvitation) {
+        defenseInvites.current.set(id, result.defenseInvitation.ticket);
+        try { sessionStorage.setItem(defenseKey(id), result.defenseInvitation.ticket); } catch { /* Keep this tab's copy. */ }
+      }
+      watch(id, result.roomKey);
+      apply(result.game);
+      if (result.invitation) rememberInvitation(id, result.invitation);
+      if (result.game.party) setJuror({ id, seated: true });
+      pendingCreate.current = undefined;
       return true;
     } catch (cause) { if (!controller.signal.aborted && !disposed.current) setError(message(cause)); return false; }
     finally { pendingOperation.current = false; if (!disposed.current) setBusy(false); }
@@ -214,6 +241,30 @@ export function useCourtPlatform() {
     } catch (cause) { if (!controller.signal.aborted && !disposed.current && watchedId.current === id) setVoteError(message(cause)); return false; }
     finally { if (!disposed.current) setVoting(false); }
   }, [apply, voting, localVote]);
+
+  const respond = useCallback(async (stance: string, useAgent: boolean) => {
+    const id = gameRef.current?.id;
+    if (!id || !responseTicket || pendingOperation.current) return false;
+    pendingOperation.current = true;
+    setResponseBusy(true);
+    setResponseError(undefined);
+    const controller = new AbortController(); requestRef.current = controller;
+    try {
+      const visitor = await platformClient.visitor(controller.signal);
+      const snapshot = await platformClient.respond(id, responseTicket, stance, useAgent, visitor.csrfToken, controller.signal);
+      if (disposed.current || controller.signal.aborted || watchedId.current !== id) return false;
+      if (useAgent) rememberInvitation(id, { role: 'defendant', ticket: responseTicket, path: '/join/' + responseTicket });
+      apply(snapshot);
+      setJuror({ id, seated: true });
+      return true;
+    } catch (cause) {
+      if (!controller.signal.aborted && !disposed.current && watchedId.current === id) setResponseError(message(cause));
+      return false;
+    } finally {
+      pendingOperation.current = false;
+      if (!disposed.current) setResponseBusy(false);
+    }
+  }, [apply, rememberInvitation, responseTicket]);
 
   const juryAction = useCallback(async (reaction?: JuryReactionInput) => {
     const id = gameRef.current?.id;
@@ -251,6 +302,14 @@ export function useCourtPlatform() {
       if (juryRequest.current === controller) juryRequest.current = undefined;
     }
   }, [apply]);
+  const partyLinks = gameId && game?.party ? {
+    room: new URL(roomSharePath(gameId), window.location.origin).href,
+    defense: (() => {
+      const ticket = defenseInvites.current.get(gameId) || restoreDefense(gameId);
+      return ticket ? new URL(roomSharePath(gameId, ticket), window.location.origin).href : undefined;
+    })(),
+  } : undefined;
   return { gameId, game, gameRef, applyGame: apply, connection, games, listLoading, listError, refreshList, watch, leave, error, busy, invitation, ownInvitations, create, invite, localVote, voting, voteError, vote,
+    partyLinks, responseTicket, respond, responseBusy, responseError,
     juror: juror?.id === gameId ? juror : undefined, juryAction };
 }

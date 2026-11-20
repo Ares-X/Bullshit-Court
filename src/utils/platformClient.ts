@@ -19,6 +19,35 @@ async function request<T>(path: string, options: RequestInit = {}, signal?: Abor
 }
 export const newActionId = () => globalThis.crypto.randomUUID();
 export const publicGamePath = (id: string) => '/games/' + encodeURIComponent(id);
+const apiGamePath = (id: string) => '/api' + publicGamePath(id);
+const roomKeyStorage = (id: string) => 'internet-court:room-key:' + id;
+export function roomFragment(id: string) {
+  return new URLSearchParams(window.location.pathname.replace(/\/$/, '') === publicGamePath(id) ? window.location.hash.slice(1) : '');
+}
+export function rememberRoomKey(id: string, key: string) {
+  try { sessionStorage.setItem(roomKeyStorage(id), key); } catch { /* Current link still carries the key. */ }
+}
+export function roomAccessKey(id: string): string | undefined {
+  const fromLink = roomFragment(id).get('key');
+  if (fromLink && /^[A-Za-z0-9_.-]{16,200}$/.test(fromLink)) return fromLink;
+  try { return sessionStorage.getItem(roomKeyStorage(id)) || undefined; } catch { return undefined; }
+}
+export function roomSharePath(id: string, responseTicket?: string, key = roomAccessKey(id)) {
+  const params = new URLSearchParams();
+  if (key) params.set('key', key);
+  if (responseTicket) params.set('respond', responseTicket);
+  return publicGamePath(id) + (params.size ? '#' + params : '');
+}
+export function roomEventsPath(id: string, after: number) {
+  const params = new URLSearchParams({ after: String(after) });
+  const key = roomAccessKey(id);
+  if (key) params.set('key', key);
+  return apiGamePath(id) + '/events?' + params;
+}
+function roomHeaders(id: string, csrfToken?: string): Record<string, string> {
+  const key = roomAccessKey(id);
+  return { ...(key ? { 'x-court-room-key': key } : {}), ...(csrfToken ? { 'x-court-csrf': csrfToken } : {}) };
+}
 export const platformClient = {
   judgments: (query = '', cursor?: string, limit = 12, signal?: AbortSignal) => {
     const params = new URLSearchParams({ query, limit: String(limit) });
@@ -31,21 +60,27 @@ export const platformClient = {
   agentTurn: (id: string, seatToken: string, input: AgentTurnInput, signal?: AbortSignal) => request<AgentState>('/api/games/' + encodeURIComponent(id) + '/turns', { method: 'POST', headers: { Authorization: 'Bearer ' + seatToken }, body: JSON.stringify(input) }, signal),
   agentVerdicts: (id: string, seatToken: string, input: PrepareVerdictsInput, signal?: AbortSignal) => request<AgentState>('/api/games/' + encodeURIComponent(id) + '/verdicts', { method: 'POST', headers: { Authorization: 'Bearer ' + seatToken }, body: JSON.stringify(input) }, signal),
   list: (signal?: AbortSignal) => request<{ games: GameCard[] }>('/api/games', {}, signal),
-  get: (id: string, signal?: AbortSignal) => request<PublicGame>('/api/games/' + encodeURIComponent(id), {}, signal),
+  get: (id: string, signal?: AbortSignal) => request<PublicGame>(apiGamePath(id), { headers: roomHeaders(id) }, signal),
   capabilities: (signal?: AbortSignal) => request<{ builtinJudge: boolean }>('/api/capabilities', {}, signal),
-  create: (input: CreateGameInput, signal?: AbortSignal) =>
-    request<CreateGameResult>('/api/games', { method: 'POST', body: JSON.stringify(input) }, signal),
+  create: async (input: CreateGameInput, signal?: AbortSignal) => {
+    const visitor = input.party && await request<{ csrfToken: string }>('/api/visitor', {}, signal);
+    return request<CreateGameResult>('/api/games', {
+      method: 'POST', headers: visitor ? { 'x-court-csrf': visitor.csrfToken } : {}, body: JSON.stringify(input),
+    }, signal);
+  },
   invite: (id: string, role: CourtRole, ownerToken?: string, signal?: AbortSignal) =>
-    request<GameInvitation>('/api/games/' + encodeURIComponent(id) + '/invitations', { method: 'POST', body: JSON.stringify({ role, ...(ownerToken ? { ownerToken } : {}) }) }, signal),
+    request<GameInvitation>(apiGamePath(id) + '/invitations', { method: 'POST', headers: roomHeaders(id), body: JSON.stringify({ role, ...(ownerToken ? { ownerToken } : {}) }) }, signal),
   visitor: (signal?: AbortSignal) => request<{ csrfToken: string }>('/api/visitor', {}, signal),
   jurySeat: (id: string, signal?: AbortSignal) =>
-    request<{ seated: boolean }>(('/api' + publicGamePath(id)) + '/jury-seat', {}, signal),
+    request<{ seated: boolean; vote?: JuryWinner }>(apiGamePath(id) + '/jury-seat', { headers: roomHeaders(id) }, signal),
   joinJury: (id: string, csrfToken: string, signal?: AbortSignal) =>
-    request<PublicGame>(('/api' + publicGamePath(id)) + '/jury-seat',
-      { method: 'POST', headers: { 'x-court-csrf': csrfToken }, body: '{}' }, signal),
+    request<PublicGame>(apiGamePath(id) + '/jury-seat',
+      { method: 'POST', headers: roomHeaders(id, csrfToken), body: '{}' }, signal),
   react: (id: string, reaction: JuryReactionInput, csrfToken: string, clientActionId: string, signal?: AbortSignal) =>
-    request<PublicGame>(('/api' + publicGamePath(id)) + '/reactions',
-      { method: 'POST', headers: { 'x-court-csrf': csrfToken }, body: JSON.stringify({ ...reaction, clientActionId }) }, signal),
+    request<PublicGame>(apiGamePath(id) + '/reactions',
+      { method: 'POST', headers: roomHeaders(id, csrfToken), body: JSON.stringify({ ...reaction, clientActionId }) }, signal),
   vote: (id: string, winner: JuryWinner, csrfToken: string, clientActionId: string, signal?: AbortSignal) =>
-    request<PublicGame>('/api/games/' + encodeURIComponent(id) + '/votes', { method: 'POST', headers: { 'x-court-csrf': csrfToken }, body: JSON.stringify({ winner, clientActionId }) }, signal),
+    request<PublicGame>(apiGamePath(id) + '/votes', { method: 'POST', headers: roomHeaders(id, csrfToken), body: JSON.stringify({ winner, clientActionId }) }, signal),
+  respond: (id: string, ticket: string, stance: string, useAgent: boolean, csrfToken: string, signal?: AbortSignal) =>
+    request<PublicGame>(apiGamePath(id) + '/respond', { method: 'POST', headers: roomHeaders(id, csrfToken), body: JSON.stringify({ ticket, useAgent, ...(useAgent ? {} : { stance }) }) }, signal),
 };

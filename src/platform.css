@@ -14,7 +14,6 @@
 .platform-button--primary:hover:not(:disabled) { background: #ffe580; }
 .platform-button--cyan { border-color: #7be1d2; color: #7be1d2; }
 .platform-button:disabled { opacity: .55; cursor: default; }
-.platform-hero-note { color: #aaa2b5; font-size: 11px; line-height: 1.8; margin-top: 20px; max-width: 420px; }
 .platform-pixel-court { min-width: 0; align-self: stretch; position: relative; display: flex; flex-direction: column; justify-content: flex-end; border: 3px solid #655267; box-shadow: 7px 7px 0 #0c0911; background: repeating-linear-gradient(0deg, #221e30 0px, #221e30 3px, #251f33 3px, #251f33 6px); padding: 26px 14px 0; min-height: 345px; overflow: hidden; }
 .platform-court-sign { align-self: center; padding: 6px 11px; color: #f6d85c; border: 2px solid #f6d85c; font-size: 10px; font-weight: 900; letter-spacing: .14em; box-shadow: 3px 3px 0 #100d18; }
 .platform-hero-cast { display: flex; align-items: flex-end; gap: 6px; margin-top: 28px; }
@@ -27,11 +26,6 @@
 .platform-hero-character--defendant .platform-speech { background: #7be1d2; }
 .platform-court-desk { position: relative; margin: 0 -14px; padding: 17px 14px; border-top: 5px solid #a4785e; background: #503731; color: #eed4ae; text-align: center; font-size: 12px; letter-spacing: .12em; }
 .platform-court-desk span { display: block; font-size: 10px; color: #f6d85c; margin-top: 7px; letter-spacing: .25em; }
-.platform-how { display: grid; grid-template-columns: repeat(3, 1fr); border-block: 2px solid #59465f; gap: 24px; padding: 22px 0; }
-.platform-how p { display: flex; align-items: center; gap: 14px; margin: 0; }
-.platform-how b { font-size: 28px; color: #ef695e; }
-.platform-how span { color: #bcb3c4; font-size: 11px; line-height: 1.9; }
-.platform-how strong { display: block; color: #f4ead0; font-size: 14px; }
 .platform-section { padding-block: 38px; scroll-margin-top: 24px; }
 .platform-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
 .platform-section-heading h2 { font-size: 23px; font-weight: 900; margin: 0; line-height: 1.4; }
@@ -50,14 +44,6 @@
 .platform-case-clash { border-left: 3px solid #ef695e; padding-left: 12px; color: #f3d5bc; font-size: 12px; line-height: 1.8; margin-block: 20px; }
 .platform-tag { display: inline-flex; padding: 4px 7px; border: 1px solid #75617b; background: #302634; color: #f6d85c; font-size: 10px; line-height: 1.5; }
 .platform-live { border-block: 2px solid #59465f; }
-.platform-live-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; gap: 12px; }
-.platform-tabs { display: flex; gap: 18px; }
-.platform-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 8px 0 12px; background: none; color: #9d91aa; font: inherit; font-size: 16px; font-weight: 900; cursor: pointer; }
-.platform-tabs button[aria-pressed=true] { color: #f6d85c; border-color: #f6d85c; }
-.platform-tabs button span { font-size: 11px; background: #362a3c; padding: 3px 6px; margin-left: 5px; }
-.platform-live-note { color: #b0a4b9; font-size: 10px; }
-.platform-empty-action { padding: 0 20px 24px; text-align: center; border: 2px dashed #56445f; border-top: 0; margin-top: -2px; background: #201a29; }
-.platform-empty-action p { color: #bdb1c9; font-size: 12px; margin: 0 0 20px; }
 .platform-recent-judgments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .platform-judgment-card { display: flex; flex-direction: column; min-width: 0; border: 2px solid #625267; background: #241d2d; padding: 20px; box-shadow: 4px 4px 0 #0c0911; color: #eee1ce; }
 .platform-judgment-card h3 { font-size: 16px; font-weight: 900; margin: 15px 0 12px; line-height: 1.6; }
@@ -69,8 +55,6 @@
 .platform-archive-empty h3 { margin: 0 0 12px; font-size: 17px; }
 .platform-archive-empty p { margin: 0; color: #beb1c7; line-height: 1.8; font-size: 12px; }
 .platform-archive-empty .platform-text-button { margin-left: auto; }
-.platform-home-footer { border-top: 2px solid #59465f; padding: 26px 0 32px; display: flex; justify-content: space-between; gap: 14px; color: #aa9bb6; font-size: 11px; line-height: 1.8; }
-.platform-home-footer strong { color: #d8c7dc; font-weight: 700; }
 /* Existing platform components share the same square controls. */
 .court-lobby { color: #ede2ce; }
 .court-lobby-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 20px; }
@@ -82,7 +66,6 @@
 .court-lobby-watch, .agent-join-primary { background: #f6d85c; border-color: #ffe58d; color: #251b23; }
 .court-lobby-join { font-size: 10px; padding: 8px; color: #7be1d2; border-color: #659e98; }
 .court-lobby button:disabled, .agent-join-modal button:disabled { opacity: .5; cursor: default; }
-.court-lobby-layout { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 20px; }
 .court-lobby-games { display: grid; gap: 15px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .court-lobby-card { display: flex; flex-direction: column; padding: 19px; border: 2px solid #625267; background: #231c2b; min-width: 0; }
 .court-lobby-card-heading h3 { font-size: 17px; font-weight: 800; line-height: 1.5; margin: 12px 0; }
@@ -91,7 +74,7 @@
 .court-lobby-status--waiting-verdict { color: #f6d85c; border-color: #a58543; background: #3a3024; }
 .court-lobby-status--waiting-jury { color: #ffb2a5; border-color: #a56066; background: #40252f; }
 .court-lobby-status--waiting-jurors { color: #f0d9a2; border-color: #9e8150; background: #3b2e21; }
-.court-lobby-parties { display: flex; gap: 9px; flex-wrap: wrap; color: #c7b5ce; font-size: 11px; line-height: 1.6; }
+.court-lobby-parties { display: flex; gap: 9px; flex-wrap: wrap; color: #c7b5ce; font-size: 11px; line-height: 1.6; margin-bottom: 14px; }
 .court-lobby-parties span:nth-child(2) { color: #ef695e; }
 .court-lobby-seats { list-style: none; padding: 0; margin: 14px 0 20px; }
 .court-lobby-seats li { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #493a51; padding: 10px 0; }
@@ -99,9 +82,6 @@
 .court-lobby-seats strong { color: #e5d5e9; font-size: 11px; }
 .court-lobby-seats li span { color: #b4a6be; font-size: 10px; overflow-wrap: anywhere; }
 .court-lobby-watch { width: 100%; margin-top: auto; }
-.court-lobby-aside { border: 2px solid #605069; background: #2d2334; padding: 22px 18px; align-self: start; }
-.court-lobby-aside h3 { color: #f6d85c; font-size: 14px; margin: 0 0 18px; }
-.court-lobby-aside p { color: #c3b4ca; font-size: 12px; line-height: 2; margin: 14px 0; }
 .court-lobby-empty { grid-column: 1/-1; border: 2px dashed #56445f; background: #201a29; text-align: center; padding: 35px 20px; }
 .court-lobby-empty h3 { font-size: 18px; margin: 0 0 12px; }
 .court-lobby-empty p, .court-lobby-error { font-size: 12px; color: #c7b6ce; line-height: 1.8; }
@@ -167,8 +147,8 @@ label.agent-role-card { cursor: pointer; }
 .judgment-empty { padding: 35px 20px; text-align: center; border: 2px dashed #625267; }
 .judgment-empty h3 { color: #eedfc9; font-size: 18px; }
 .judgment-empty p { color: #bfaccd; font-size: 12px; line-height: 1.8; }
-@media (max-width: 1000px) { .court-lobby-layout { grid-template-columns: minmax(0,1fr); } .court-lobby-aside { display: none; } .platform-hero { gap: 20px; } .platform-recent-judgments { grid-template-columns: repeat(2,minmax(0,1fr)); } .platform-hero h1 { font-size: 37px; } .platform-actions { gap: 9px; } .platform-actions .platform-button { padding: 10px; font-size: 11px; } }
-@media (max-width: 700px) { .platform-home { padding: 18px 18px 0; } .platform-hero { grid-template-columns: 1fr; padding: 15px 0 28px; gap: 28px; } .platform-hero h1 { font-size: clamp(35px,9vw,51px); } .platform-hero h1 br:nth-child(2) { display: none; } .platform-hero-intro { font-size: 13px; margin: 17px 0; } .platform-actions .platform-button { flex: 1; font-size: 12px; padding: 11px 8px; gap: 8px; } .platform-hero-note { max-width: none; margin-top: 17px; } .platform-pixel-court { min-height: 280px; padding-top: 17px; } .platform-hero-cast { margin-top: 24px; } .platform-hero-character .character-portrait { max-width: 160px; } .platform-speech { font-size: 9px; } .platform-how { gap: 12px; padding: 18px 0; } .platform-how p { align-items: flex-start; gap: 8px; } .platform-how b { font-size: 20px; } .platform-how strong { font-size: 11px; } .platform-how span { font-size: 9px; } .platform-section { padding-block: 28px; } .platform-section-heading { flex-wrap: wrap; gap: 10px; } .platform-section-heading h2, .court-lobby-header h2 { font-size: 20px; } .platform-case-picker { grid-template-columns: 1fr; } .platform-case-options { display: grid; grid-template-columns: 1fr 1fr; } .platform-case-options button { padding: 12px 10px; font-size: 11px; border: 1px solid #463a50; } .platform-case-options button span { display: block; margin-bottom: 4px; } .platform-case-preview { border-left: 0; border-top: 2px solid #625267; padding: 22px; } .platform-case-preview h3 { font-size: 20px; } .platform-live-toolbar { gap: 10px; flex-wrap: wrap; } .platform-tabs { gap: 16px; } .platform-tabs button { font-size: 15px; } .platform-live-note { font-size: 9px; } .court-lobby-games, .platform-recent-judgments, .judgment-results { grid-template-columns: 1fr; } .court-lobby-header { gap: 12px; } .court-lobby-header p { font-size: 11px; } .court-lobby-refresh { padding: 9px; font-size: 10px; } .platform-archive-empty { flex-wrap: wrap; padding: 22px; gap: 14px; } .platform-archive-empty > span { font-size: 32px; } .platform-archive-empty > div { flex: 1; min-width: 170px; } .platform-archive-empty .platform-text-button { margin-left: 0; } .platform-home-footer { flex-direction: column; } .agent-join-content, .platform-jury-content, .agent-relay-content, .judgment-library { padding: 18px; } .agent-role-grid { grid-template-columns: 1fr; } .agent-role-card { padding: 14px; gap: 9px; } .platform-jury-option { padding: 17px; } .platform-jury-option strong { font-size: 19px; } .judgment-search { gap: 8px; } .judgment-search .platform-button { font-size: 11px; padding-inline: 11px; } }
+@media (max-width: 1000px) { .platform-hero { gap: 20px; } .platform-recent-judgments { grid-template-columns: repeat(2,minmax(0,1fr)); } .platform-hero h1 { font-size: 37px; } .platform-actions { gap: 9px; } .platform-actions .platform-button { padding: 10px; font-size: 11px; } }
+@media (max-width: 700px) { .platform-home { padding: 18px 18px 0; } .platform-hero { grid-template-columns: 1fr; padding: 15px 0 28px; gap: 28px; } .platform-hero h1 { font-size: clamp(35px,9vw,51px); } .platform-hero h1 br:nth-child(2) { display: none; } .platform-hero-intro { font-size: 13px; margin: 17px 0; } .platform-actions .platform-button { flex: 1; font-size: 12px; padding: 11px 8px; gap: 8px; } .platform-pixel-court { min-height: 280px; padding-top: 17px; } .platform-hero-cast { margin-top: 24px; } .platform-hero-character .character-portrait { max-width: 160px; } .platform-speech { font-size: 9px; } .platform-section { padding-block: 28px; } .platform-section-heading { flex-wrap: wrap; gap: 10px; } .platform-section-heading h2, .court-lobby-header h2 { font-size: 20px; } .platform-case-picker { grid-template-columns: 1fr; } .platform-case-options { display: grid; grid-template-columns: 1fr 1fr; } .platform-case-options button { padding: 12px 10px; font-size: 11px; border: 1px solid #463a50; } .platform-case-options button span { display: block; margin-bottom: 4px; } .platform-case-preview { border-left: 0; border-top: 2px solid #625267; padding: 22px; } .platform-case-preview h3 { font-size: 20px; } .court-lobby-games, .platform-recent-judgments, .judgment-results { grid-template-columns: 1fr; } .court-lobby-header { gap: 12px; } .court-lobby-header p { font-size: 11px; } .court-lobby-refresh { padding: 9px; font-size: 10px; } .platform-archive-empty { flex-wrap: wrap; padding: 22px; gap: 14px; } .platform-archive-empty > span { font-size: 32px; } .platform-archive-empty > div { flex: 1; min-width: 170px; } .platform-archive-empty .platform-text-button { margin-left: 0; } .agent-join-content, .platform-jury-content, .agent-relay-content, .judgment-library { padding: 18px; } .agent-role-grid { grid-template-columns: 1fr; } .agent-role-card { padding: 14px; gap: 9px; } .platform-jury-option { padding: 17px; } .platform-jury-option strong { font-size: 19px; } .judgment-search { gap: 8px; } .judgment-search .platform-button { font-size: 11px; padding-inline: 11px; } }
 @media (prefers-reduced-motion: reduce) { .platform-home *, .platform-home *::before, .platform-home *::after { scroll-behavior: auto !important; transition: none !important; } }
 /* Size native dialogs to their actual panel and keep long case files scrollable. */
 .court-modal { width: min(760px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 40px); margin: auto; overflow-y: auto; overscroll-behavior: contain; }
@@ -180,8 +160,7 @@ label.agent-role-card { cursor: pointer; }
 .court-modal__close { min-width: 36px; min-height: 36px; flex-shrink: 0; }
 .court-lobby-modal { width: min(1100px, calc(100vw - 32px)); }
 .platform-home .court-lobby { padding: 0; }
-.court-lobby-card, .court-lobby-status, .court-lobby-refresh, .court-lobby-seats li, .court-lobby-watch, .court-lobby-join, .court-lobby-aside, .agent-mode-options, .agent-role-card { border-radius: 0; }
-.court-lobby-aside { margin-top: 0; }
+.court-lobby-card, .court-lobby-status, .court-lobby-refresh, .court-lobby-seats li, .court-lobby-watch, .court-lobby-join, .agent-mode-options, .agent-role-card { border-radius: 0; }
 .court-lobby-seats li { background: transparent; }
 .agent-role-grid { padding: 0; }
 .agent-mode-options { display: flex; flex-direction: column; gap: 8px; margin: 0; }
@@ -237,3 +216,86 @@ label.agent-role-card { cursor: pointer; }
 
 .agent-relay-invitation { display: flex; flex-direction: column; gap: 12px; border: 1px solid #65506d; padding: 15px; }
 .agent-relay-invitation textarea { min-height: 0; }
+
+.party-modal { width: min(620px, calc(100vw - 20px)); color-scheme: dark; }
+.party-modal .court-modal__content, .party-response {
+  background: #201926;
+  color: #eee1ce;
+  border: 2px solid #78617b;
+  border-radius: 0;
+  font-family: 'Courier New', 'PingFang SC', monospace;
+}
+.party-modal .court-modal__header, .party-response > header {
+  background: #2b2233;
+  border-bottom: 2px solid #66516f;
+}
+.party-modal .court-modal__header h2, .party-response h1 {
+  color: #f6d85c;
+  font-family: inherit;
+  font-weight: 900;
+}
+.party-form { display: grid; gap: 17px; padding: 24px; font-size: 14px; }
+.party-form fieldset { min-width: 0; border: 0; padding: 0; margin: 0; display: grid; gap: 12px; }
+.party-form legend { font-weight: 800; margin-bottom: 8px; padding: 0; }
+.party-form label { display: grid; gap: 6px; font-weight: 800; }
+.party-form p { margin: 0; color: #d5c4d8; font-size: 13px; line-height: 1.65; }
+.party-form input:not([type='radio']), .party-form textarea, .party-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px 11px;
+  background: #171320;
+  color: #fff4df;
+  border: 1px solid #8c7891;
+  font: inherit;
+  font-weight: 400;
+}
+.party-form textarea { resize: vertical; }
+.party-form input::placeholder, .party-form textarea::placeholder { color: #c0afc6; }
+.party-form .party-preset { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; color: #d5c4d8; font-size: 13px; }
+.party-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.party-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #78617b;
+  background: #251f2d;
+  cursor: pointer;
+}
+.party-options label:has(:checked) { border-color: #f6d85c; background: #382c34; color: #f6d85c; }
+.party-options input { accent-color: #f6d85c; flex-shrink: 0; }
+.party-form fieldset:disabled label { cursor: default; }
+.party-more summary { width: fit-content; color: #7be1d2; cursor: pointer; font-weight: 800; }
+.party-more fieldset { margin-top: 10px; }
+.party-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 9px 13px;
+  border: 2px solid #ffea98;
+  background: #f6d85c;
+  color: #241a22;
+  font-weight: 900;
+}
+.party-submit:hover:not(:disabled) { background: #ffe580; }
+.party-submit:disabled { opacity: .55; }
+.party-modal :focus-visible, .party-response :focus-visible { outline: 2px solid #7be1d2; outline-offset: 3px; }
+.party-copy { display: grid; gap: 7px; }
+.party-copy > div, .party-response-actions { display: flex; align-items: center; gap: 9px; }
+.party-copy button { flex-shrink: 0; }
+.party-response { max-width: 620px; margin: 20px auto; box-shadow: 6px 6px 0 #0c0911; color-scheme: dark; }
+.party-response > header { display: flex; align-items: center; gap: 12px; padding: 20px 24px; color: #f6d85c; }
+.party-response h1 { margin: 0 0 4px; font-size: clamp(21px, 5vw, 29px); }
+.party-response > header p { margin: 0; color: #e2d1db; font-size: 13px; overflow-wrap: anywhere; }
+.party-allegation { display: grid; gap: 16px; margin: 0 24px; padding: 22px 0; border-bottom: 1px solid #66516f; }
+.party-allegation dt { margin-bottom: 4px; font-size: 12px; font-weight: 800; color: #f6d85c; }
+.party-allegation dd { margin: 0; font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .party-form, .party-response > header { padding: 16px; }
+  .party-options label { font-size: 13px; }
+  .party-allegation { margin-inline: 16px; }
+}
