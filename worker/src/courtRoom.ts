@@ -221,7 +221,7 @@ export class CourtRoom {
       let payload = game.prepared[next];
       if (game.party) {
         const turn = payload as { text: string };
-        payload = { ...turn, text: `陪审报票：原告 ${plaintiff} 票，被告 ${defendant} 票。${turn.text}` };
+        payload = { ...turn, text: `原告 ${plaintiff} 票，被告 ${defendant} 票。${next === 'plaintiff' ? '原告' : '被告'}胜。${turn.text}` };
       }
       game.session = applyExternalCourtRuling(castJuryVote(game.session, next), payload);
       game.prepared.publishedAt = this.now(); this.change(game);
@@ -313,6 +313,14 @@ export class CourtRoom {
       });
     } catch (error) {
       console.error('court built-in judge turn failed', game.id, turnId, error);
+      if (game.party && error instanceof CourtRuntimeError && error.code === 'INVALID_RESPONSE') {
+        await this.mutate(async () => {
+          const current = await this.load();
+          if (!current || this.builtinTurn(current) !== turnId || current.builtinRetry?.attempts !== attempt.attempts) return;
+          const retryDelay = Math.min(2_000 * 2 ** (attempt.attempts - 1), 30_000);
+          await this.save({ ...current, builtinRetry: { ...attempt, after: this.now() + retryDelay } });
+        });
+      }
     }
   }
   async alarm() {

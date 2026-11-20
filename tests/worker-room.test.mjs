@@ -533,7 +533,7 @@ try {
     const completed = await ok(await post(id + '/votes', ballot, { ...host, ...access }));
     assert.equal(completed.session.turns.length, 11);
     assert.equal(completed.session.ruling.winner, 'plaintiff');
-    assert.match(completed.session.turns.at(-1).text, /原告 1 票，被告 0 票。原告专用第十一轮/);
+    assert.match(completed.session.turns.at(-1).text, /原告 1 票，被告 0 票。原告胜。原告专用第十一轮/);
     assert.doesNotMatch(JSON.stringify(completed), /被告专用第十一轮|本庭支持被告/);
     assert.deepEqual(await ok(await browser(id + '/jury-seat', { headers: { ...host, ...access } })), { seated: true, vote: 'plaintiff' });
     assert.equal(await storage.getAlarm(), null);

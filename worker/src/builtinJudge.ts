@@ -1,7 +1,7 @@
 import { getCourtCast } from '../../src/data/courtCasts';
 import type { CourtRole } from '../../src/types';
 import type { PublicGame } from '../../src/types/platform';
-import { getCourtAgentRequest, requestCourtTurn } from '../../src/utils/courtRuntime';
+import { CourtRuntimeError, getCourtAgentRequest, requestCourtTurn } from '../../src/utils/courtRuntime';
 import { courtRulingSchema } from './mcp';
 
 const FREE_JUDGES = [
@@ -114,7 +114,7 @@ export async function generatePartyTurn(apiKey: string, game: PublicGame, role: 
       '只用已有的经过、数值和证物，争议处说清是谁的说法。',
       seal ? [
         '交一份 JSON。seal 是封卷台词，说完请大家投票。plaintiff 和 defendant 各写一份对应那一方获胜的判词。',
-        '每份判词的 text 说怎么判，reason 说为什么，lastLine 用本案的梗收尾。票数由法庭补上。',
+        'text 说这事怎么收场，reason 点出采了谁的哪句话，lastLine 接本案的梗。用平时说话的口气，比如「支架留着，下次拿废纸折。」输赢和票数由法庭报。',
         ...(evidence.length ? ['用 evidenceId 选一件理由里用到的证物。'] : []),
       ].join('\n') : '只交 JSON，含 speaker、text、emotion、responseTo、evidenceIds。responseTo 填本轮回应过的编号和 requiredInterventionIds；evidenceIds 填用到的证物编号。没有就填 []。',
     ].join('\n') },
@@ -129,7 +129,9 @@ export async function generatePartyTurn(apiKey: string, game: PublicGame, role: 
     ({ speaker: 'judge', emotion: 'gavel', text, responseTo, evidenceIds });
   const branch = (winner: 'plaintiff' | 'defendant', entry: VerdictDraft) => {
     if (!entry || typeof entry.text !== 'string' || !entry.text.trim()
-      || typeof entry.lastLine !== 'string' || !entry.lastLine.trim()) throw new Error('Incomplete verdict draft');
+      || typeof entry.lastLine !== 'string' || !entry.lastLine.trim()) {
+      throw new CourtRuntimeError('INVALID_RESPONSE', '两份判词还没写完。');
+    }
     const evidenceIds = [...new Set([...supplemental, ...(entry.evidenceId ? [entry.evidenceId] : [])])];
     const consideredInterventionIds = interventions.map(item => item.id);
     return {
