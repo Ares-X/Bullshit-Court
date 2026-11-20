@@ -121,8 +121,16 @@ export function requestCourtRuling(session: CourtSession): CourtSession {
 }
 
 export function castJuryVote(session: CourtSession, vote: 'plaintiff' | 'defendant'): CourtSession {
-  if (session.status !== 'awaiting-ruling' || session.pendingTurns.length || session.juryVote) return stateError('双方交锋结束后，陪审团才能投票一次。');
   if (vote !== 'plaintiff' && vote !== 'defendant') return stateError('陪审团只能支持原告或被告。');
+  return recordJuryResult(session, vote);
+}
+
+export function castJuryDraw(session: CourtSession): CourtSession {
+  return recordJuryResult(session, 'draw');
+}
+
+function recordJuryResult(session: CourtSession, vote: NonNullable<CourtSession['juryVote']>): CourtSession {
+  if (session.status !== 'awaiting-ruling' || session.pendingTurns.length || session.juryVote) return stateError('双方交锋结束后，陪审团才能投票一次。');
   return { ...clone(session), juryVote: vote, rulingRequested: true, status: 'active' };
 }
 
@@ -366,6 +374,14 @@ export function rehearsalTurn(session: CourtSession, step: CourtScheduledTurn): 
     responseTo: replyIds, evidenceIds: cited.map(e => e.id) };
   if (step.phase === 'verdict') {
     const winner = session.juryVote!;
+    if (winner === 'draw') {
+      const result = '这庭打平，两边都先收一收。';
+      const quote = '法槌收了，下桌再聊。';
+      return { ...payload, text: result + quote, evidenceIds: [], ruling: {
+        winner, result, quote, penalty: [], reasons: ['两边票数一样。'], evidenceIds: [],
+        consideredInterventionIds: session.interventions.map(item => item.id),
+      } };
+    }
     const winningName = winner === 'plaintiff' ? c.plaintiffName : c.defendantName;
     const reasons = [
       `陪审团已投票支持${winner === 'plaintiff' ? '原告' : '被告'}${winningName}；本庭据此作出本次娱乐裁决。`,
@@ -451,8 +467,8 @@ export function validateCourtSession(input: unknown): CourtSession {
     restoreInputs();
     const turn = record(value);
     if (turn.phase === 'verdict') {
-      if (raw.juryVote !== 'plaintiff' && raw.juryVote !== 'defendant') return invalid('终局裁决缺少陪审投票。');
-      session = castJuryVote(session, raw.juryVote);
+      if (raw.juryVote !== 'plaintiff' && raw.juryVote !== 'defendant' && raw.juryVote !== 'draw') return invalid('终局裁决缺少陪审投票。');
+      session = recordJuryResult(session, raw.juryVote);
       session = applyExternalCourtRuling(session, { ...turn, ruling: raw.ruling });
     } else {
       session = applyExternalCourtTurn(session, turn);
@@ -462,8 +478,8 @@ export function validateCourtSession(input: unknown): CourtSession {
   restoreInputs();
   if (inputIndex !== inputs.length) return invalid('参与材料引用了未知或过时的发言位置。');
   if (raw.juryVote !== undefined && session.juryVote === undefined) {
-    if (raw.juryVote !== 'plaintiff' && raw.juryVote !== 'defendant') return invalid('陪审投票无效。');
-    session = castJuryVote(session, raw.juryVote);
+    if (raw.juryVote !== 'plaintiff' && raw.juryVote !== 'defendant' && raw.juryVote !== 'draw') return invalid('陪审投票无效。');
+    session = recordJuryResult(session, raw.juryVote);
   }
   if (session.phase !== raw.phase || session.status !== raw.status || session.rulingRequested !== raw.rulingRequested) return invalid('存档状态与已发生的庭审不一致。');
   const evidence = raw.evidences.map(validateEvidence);

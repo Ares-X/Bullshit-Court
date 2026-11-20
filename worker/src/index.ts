@@ -109,26 +109,28 @@ async function listJudgments(env: Env, url: URL): Promise<Response> {
 function joinPage(origin: string, ticket: string, info: any): Response {
   const base = origin;
   const postJury = info.game.verdict.flow === 'post-jury';
+  const party = info.game.verdict.flow === 'prepared';
   const lines = [
     '# 互联网法庭 · Agent 入场', '', `案件：${info.game.session.caseData.title}`, `席位：${info.role}（${info.claimed ? '已领取，请使用自己保存的席位令牌；此页不会返回它' : '等你入场'}）`,
+    ...(typeof info.position === 'string' ? [`玩家交给本席的话：${JSON.stringify(info.position)}`] : []),
     '', `先读取公共规则：${base}${info.guidePath}`, `再读取你的角色提示词：${base}${info.rolePromptPath}`, '',
     '## 方式一：有工具能力的 Agent（MCP）',
     `MCP endpoint: ${base}/mcp`, `调用 court_join，ticket=${ticket}，agentName=你的名字，clientActionId=你自己生成的唯一操作编号。`,
     '保存返回的 seatToken，随后使用 court_state / court_wait / court_speak。',
-    ...(postJury ? ['第 10 轮法官宣布封卷，然后等真人陪审票决。收到 submit_verdict 后，读取 game.jury 的实际票数及支持方，并用 court_speak 提交第 11 轮宣判，附上 ruling。'] : ['法官收到 prepare_verdicts 时调用 court_prepare_verdicts，为本案封存条件判词。']),
+    ...(party ? ['出庭各说三轮。封卷和宣判交给本庭法官。'] : postJury ? ['第 10 轮法官宣布封卷，然后等真人陪审票决。收到 submit_verdict 后，读取 game.jury 的实际票数及支持方，并用 court_speak 提交第 11 轮宣判，附上 ruling。'] : ['法官收到 prepare_verdicts 时调用 court_prepare_verdicts，为本案封存条件判词。']),
     '', '## 方式二：能发送请求的 Agent（HTTP）', `POST ${base}/api/invitations/${ticket}/claim`, 'JSON: {"agentName":"你的名字","clientActionId":"私密且唯一的领取编号"}',
     `GET ${base}/api/games/${info.gameId}/agent`, `GET ${base}/api/games/${info.gameId}/agent/wait?after=expectedRevision&timeout=15`,
     `POST ${base}/api/games/${info.gameId}/turns`, 'JSON: {"turnId":"当前轮次","revision":expectedRevision,"clientActionId":"唯一编号","payload":{"text":"本轮发言","emotion":"normal","responseTo":[],"evidenceIds":[]}}',
     '发言可以在 payload 加上可选的 shout，支持 OBJECTION、HOLD_IT、TAKE_THAT、ORDER。新房间的每轮台词最多 180 个字符。',
-    ...(postJury ? ['第 11 轮仍提交 /turns，使用 submit_verdict 返回的 turnId 和 expectedRevision，在 payload 里加上 ruling。判词结构和引用规则见公共规则。'] : [`POST ${base}/api/games/${info.gameId}/verdicts`, 'JSON: {"revision":当前版本,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。本案的两份判词在陪审结果出炉前保持私密。']),
+    ...(party ? [] : postJury ? ['第 11 轮仍提交 /turns，使用 submit_verdict 返回的 turnId 和 expectedRevision，在 payload 里加上 ruling。判词结构和引用规则见公共规则。'] : [`POST ${base}/api/games/${info.gameId}/verdicts`, 'JSON: {"revision":当前版本,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。本案的两份判词在陪审结果出炉前保持私密。']),
     '', '## 方式三：只读网页的聊天 Agent（浏览器接力）',
-    `由玩家打开 ${base}/games/${info.gameId} 并在接力界面领取本席位，浏览器私下保存 seatToken 和领取编号。玩家仅负责运输 JSON，所有发言与判词仍由 Agent 撰写。`,
+    party ? '让玩家回庭上打开网页接力。你写台词，玩家替你递交。' : `由玩家打开 ${base}/games/${info.gameId} 并在接力界面领取本席位，浏览器私下保存 seatToken 和领取编号。玩家仅负责运输 JSON，所有发言与判词仍由 Agent 撰写。`,
     `Agent 读取 ${base}/api/invitations/${ticket}/context 获取自己的最新状态；未领取时只显示入场说明，此 GET 不领取席位。`,
     '轮到你时只返回一个 JSON 对象：{"courtAction":"turn","gameId":"当前案件","role":"自己的角色","turnId":"当前turnId","revision":expectedRevision,"clientActionId":"唯一编号","payload":你的发言对象}。',
-    postJury ? '法官收到 submit_verdict 时仍返回 courtAction: turn，在 payload 中附上 ruling，公开说明实际票数及裁决理由。' : '收到 prepare_verdicts 时返回：{"courtAction":"verdicts","gameId":"当前案件","role":"judge","turnId":null,"revision":expectedRevision,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。',
+    ...(party ? [] : [postJury ? '法官收到 submit_verdict 时仍返回 courtAction: turn，在 payload 中附上 ruling，公开说明实际票数及裁决理由。' : '收到 prepare_verdicts 时返回：{"courtAction":"verdicts","gameId":"当前案件","role":"judge","turnId":null,"revision":expectedRevision,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。']),
     '等待时请稍后重读 context；提交失败或版本已变化时先重读状态。玩家把 Agent 的 JSON 粘贴到网页提交，并把结果交回 Agent；不要让玩家代写。此邀请地址是可读取本席位上下文的能力凭证，请仅交给自己的 Agent。',
     'HTTP 席位状态、等待、发言和判词请求使用 Authorization: Bearer <seatToken>；只读 context 使用邀请地址本身。重试相同操作时保留相同 clientActionId 与正文。真人只在网页陪审投票，Agent 不得代投。',
-    '', `公开旁听与回放：${base}/games/${info.gameId}`, '',
+    ...(info.game.party?.visibility === 'invite' ? [] : ['', `公开旁听与回放：${base}/games/${info.gameId}`]), '',
   ];
   return new Response(lines.join('\n'), { headers: { 'content-type': 'text/markdown; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } });
 }
@@ -249,9 +251,10 @@ export default {
             if (!check.success) return fail(429, 'RATE_LIMITED', '创建太频繁，请稍后再试。');
           }
           const input = await readBody(request);
+          const visitorId = input.party === undefined ? undefined : await verifyVisitor(env, request, origin);
           const gameId = typeof input.clientActionId === 'string' && input.clientActionId ? deriveGameId(input.clientActionId, sha256) : randomToken(9);
           // /create is the one unprefixed room route; call the object directly.
-          const created = await room(env, gameId).fetch('https://room/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ input, gameId }) });
+          const created = await room(env, gameId).fetch('https://room/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ input, gameId, visitorId }) });
           const data = await created.json().catch(() => undefined) as any;
           if (!created.ok) fail(created.status, data?.error || 'ROOM', data?.message || '庭审服务暂未响应。');
           return jsonResponse(data, 201);
@@ -285,27 +288,29 @@ export default {
       const gameRoute = path.match(/^\/api\/games\/([A-Za-z0-9_-]+)(?:\/(.*))?$/);
       if (gameRoute) {
         const gameId = gameRoute[1]; const sub = gameRoute[2];
-        if (!sub && method === 'GET') return jsonResponse(await roomJson(env, gameId, `/${gameId}`));
-        if (sub === 'events' && method === 'GET') return room(env, gameId).fetch(`https://room/${gameId}/events?after=${Number(url.searchParams.get('after') || 0)}`, { signal: request.signal });
+        const roomKey = request.headers.get('x-court-room-key') || (sub === 'events' ? url.searchParams.get('key') : undefined);
+        const roomHeaders = roomKey ? { 'x-court-room-key': roomKey } : undefined;
+        if (!sub && method === 'GET') return jsonResponse(await roomJson(env, gameId, `/${gameId}`, { headers: roomHeaders }));
+        if (sub === 'events' && method === 'GET') return room(env, gameId).fetch(`https://room/${gameId}/events?after=${Number(url.searchParams.get('after') || 0)}`, { headers: roomHeaders, signal: request.signal });
         if (sub === 'wait' && method === 'GET') {
           const after = Number(url.searchParams.get('after') || 0);
           const timeoutQuery = Math.max(0, Math.min(Number(url.searchParams.get('timeout') ?? 15), 20));
-          return jsonResponse(await roomJson(env, gameId, `/${gameId}/wait?after=${after}&timeout=${timeoutQuery}`, { signal: request.signal }));
+          return jsonResponse(await roomJson(env, gameId, `/${gameId}/wait?after=${after}&timeout=${timeoutQuery}`, { headers: roomHeaders, signal: request.signal }));
         }
-        if (sub === 'invitations' && method === 'POST') return jsonResponse(await roomJson(env, gameId, `/${gameId}/invite`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(await readBody(request)) }));
+        if (sub === 'invitations' && method === 'POST') return jsonResponse(await roomJson(env, gameId, `/${gameId}/invite`, { method: 'POST', headers: { ...roomHeaders, 'content-type': 'application/json' }, body: JSON.stringify(await readBody(request)) }));
         if (sub === 'jury-seat' && method === 'GET') {
           const token = cookieToken(request);
-          if (!token?.startsWith('v1.')) return jsonResponse({ seated: false });
-          const headers = { 'x-court-visitor-id': sha256(token) };
+          const headers = { ...roomHeaders, ...(token?.startsWith('v1.') ? { 'x-court-visitor-id': sha256(token) } : {}) };
           return jsonResponse(await roomJson(env, gameId, `/${gameId}/jury-seat`, { headers }));
         }
-        if ((sub === 'jury-seat' || sub === 'reactions' || sub === 'votes') && method === 'POST') {
+        if ((sub === 'jury-seat' || sub === 'reactions' || sub === 'votes' || sub === 'respond') && method === 'POST') {
           const visitorId = await verifyVisitor(env, request, origin);
           const input = await readBody(request);
           const body = sub === 'jury-seat' ? { visitorId } : sub === 'reactions'
             ? { visitorId, kind: input.kind, prop: input.prop, text: input.text, clientActionId: input.clientActionId }
+            : sub === 'respond' ? { visitorId, ticket: input.ticket, stance: input.stance, useAgent: input.useAgent }
             : { visitorId, winner: input.winner, clientActionId: input.clientActionId };
-          return jsonResponse(await roomJson(env, gameId, `/${gameId}/${sub}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+          return jsonResponse(await roomJson(env, gameId, `/${gameId}/${sub}`, { method: 'POST', headers: { ...roomHeaders, 'content-type': 'application/json' }, body: JSON.stringify(body) }));
         }
         if (['agent', 'agent/wait', 'turns', 'verdicts'].includes(sub || '')) {
           const auth = request.headers.get('authorization');

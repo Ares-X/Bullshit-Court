@@ -133,7 +133,7 @@ export interface CourtSession {
   phase: CourtPhase;
   status: 'active' | 'awaiting-ruling' | 'completed';
   rulingRequested: boolean;
-  juryVote?: 'plaintiff' | 'defendant';
+  juryVote?: 'plaintiff' | 'defendant' | 'draw';
   ruling?: CourtRuling;
   appeal?: {
     reason: string;

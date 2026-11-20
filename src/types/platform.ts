@@ -8,6 +8,13 @@ export type JuryReaction = (
   { kind: 'prop'; prop: JuryProp; target: CourtRole } | { kind: 'message'; text: string }
 ) & { id: number };
 export interface CourtCapabilities { builtinJudge: boolean }
+export interface PartyRoomInput {
+  visibility: 'public' | 'invite';
+  plaintiff: 'builtin' | 'external';
+  defendant: 'builtin' | 'friend';
+  demand: string;
+  defense?: string;
+}
 export interface PublicSeat {
   role: CourtRole;
   source: 'practice' | 'external' | 'builtin';
@@ -26,6 +33,7 @@ export interface PublicGame {
   currentTurnId: string | null;
   currentRole: CourtRole | null;
   guidePath: string;
+  party?: Pick<PartyRoomInput, 'visibility' | 'defendant'>;
   audience?: { seated: number; required: number; reactions: JuryReaction[] };
   jury: {
     plaintiffVotes: number;
@@ -33,13 +41,14 @@ export interface PublicGame {
     total: number;
     minimumVotes: number;
     deadlineAt?: number;
-    outcome: 'pending' | JuryWinner | 'unresolved';
+    outcome: 'pending' | JuryWinner | 'draw' | 'unresolved';
   };
-  verdict: { flow?: 'post-jury'; prepared: boolean; preparedAt?: number; publishedAt?: number; source?: PublicSeat['source'] };
+  verdict: { flow?: 'post-jury' | 'prepared'; prepared: boolean; preparedAt?: number; publishedAt?: number; source?: PublicSeat['source'] };
 }
 export interface AgentState {
   game: PublicGame;
   role: CourtRole;
+  position?: string;
   roleFinished: boolean;
   canSubmit: boolean;
   turnId: string | null;
@@ -63,6 +72,7 @@ export interface GameCard {
   seats: Record<CourtRole, PublicSeat>;
   jury: PublicGame['jury'];
   audience?: Pick<NonNullable<PublicGame['audience']>, 'seated' | 'required'>;
+  party?: PublicGame['party'];
   turnCount: number;
   ruling?: { winner: 'plaintiff' | 'defendant' | 'draw'; quote?: string; result: string };
 }
@@ -74,15 +84,22 @@ export interface CreateGameInput {
   clientActionId?: string;
   judgeMode?: 'external' | 'builtin';
   judgeCastId?: string;
+  party?: PartyRoomInput;
 }
-export interface CreateGameResult { game: PublicGame; ownerToken: string; invitation: GameInvitation }
+export interface CreateGameResult {
+  game: PublicGame;
+  ownerToken: string;
+  invitation?: GameInvitation;
+  roomKey?: string;
+  defenseInvitation?: GameInvitation;
+}
 export interface AgentTurnInput { turnId: string; revision: number; clientActionId: string; payload: unknown }
 export interface PrepareVerdictsInput { clientActionId: string; plaintiff: unknown; defendant: unknown; revision?: number }
 
 export interface JudgmentPage { games: GameCard[]; nextCursor?: string }
 export type InvitationContext = AgentState | {
   game: PublicGame; gameId: string; role: CourtRole; claimed: false; action: 'claim';
-  guidePath: string; rolePromptPath: string; claimPath: string;
+  guidePath: string; rolePromptPath: string; claimPath: string; position?: string;
 };
 /** Agent-authored JSON carried by the seat owner's browser to the existing mutation endpoints. */
 export type RelayCourtAction = {

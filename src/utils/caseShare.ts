@@ -16,7 +16,7 @@ const schema: Schema = {
   turns: { array: { ...dialogue, speaker: ['judge', 'plaintiff', 'defendant'], phase, responseTo: { array: 'string' }, evidenceIds: { array: 'string' } } },
   evidences: { array: evidence }, interventions: { array: { id: 'string', kind: ['question', 'evidence', 'opinion'], text: 'string', timestamp: 'number', 'evidence?': evidence, 'afterTurnId?': 'string' } },
   pendingTurns: { array: { role: ['judge', 'plaintiff', 'defendant'], phase, interventionIds: { array: 'string' } } },
-  'juryVote?': ['plaintiff', 'defendant'], phase, status: ['active', 'awaiting-ruling', 'completed'], rulingRequested: 'boolean', 'ruling?': ruling,
+  'juryVote?': ['plaintiff', 'defendant', 'draw'], phase, status: ['active', 'awaiting-ruling', 'completed'], rulingRequested: 'boolean', 'ruling?': ruling,
   'appeal?': { reason: 'string', role: ['plaintiff', 'defendant'], originalSessionId: 'string', originalRuling: ruling },
 };
 function project(value: unknown, spec: Schema, depth = 0): unknown {
