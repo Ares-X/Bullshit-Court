@@ -121,7 +121,7 @@ test('rehearsals use each case’s in-person arguments, respond to earlier turns
 
 test('cast styles affect spoken rehearsal dialogue while case identities stay intact', async () => {
   const openings = [];
-  for (const cast of ['everyday', 'city', 'night']) {
+  for (const cast of ['everyday', 'city', 'night', 'gavel', 'chill']) {
     const dossier = structuredClone(presets[0]);
     for (const role of ['judge', 'plaintiff', 'defendant']) dossier.agents[role].id = `cast:${cast}:${role}`;
     let session = await advanceCourtSession(createCourtSession(dossier));
@@ -130,7 +130,7 @@ test('cast styles affect spoken rehearsal dialogue while case identities stay in
     assert.equal(session.turns[1].speakerName, dossier.plaintiffName);
     assert.ok(session.turns[1].text.includes(dossier.turns.find(turn => turn.speaker === 'plaintiff').text));
   }
-  assert.equal(new Set(openings).size, 3);
+  assert.equal(new Set(openings).size, openings.length);
 });
 
 test('new evidence and questions require targeted responses from both parties before a judge rules', async () => {

@@ -7,12 +7,13 @@ interface PlatformJuryModalProps {
   onClose: () => void;
   game: PublicGame;
   localVote?: JuryWinner;
+  seated?: boolean;
   voting?: boolean;
   error?: string;
   onVote: (side: JuryWinner) => void;
 }
 
-export function PlatformJuryModal({ isOpen, onClose, game, localVote, voting = false, error, onVote }: PlatformJuryModalProps) {
+export function PlatformJuryModal({ isOpen, onClose, game, localVote, seated, voting = false, error, onVote }: PlatformJuryModalProps) {
   const submitting = useRef(false);
   useEffect(() => { if (!voting) submitting.current = false; }, [voting, error, game.revision]);
   useEffect(() => { submitting.current = false; }, [game.id]);
@@ -22,7 +23,7 @@ export function PlatformJuryModal({ isOpen, onClose, game, localVote, voting = f
   const juryWinner = game.jury.outcome === 'plaintiff' ? '原告' : game.jury.outcome === 'defendant' ? '被告' : undefined;
   const juryOpen = game.status === 'waiting-jury' && game.jury.outcome === 'pending';
   const verdictPending = !completed && !!juryWinner;
-  const canVote = juryOpen && !localVote && !voting;
+  const canVote = juryOpen && seated !== false && !localVote && !voting;
   const ruling = completed ? game.session.ruling : undefined;
   const deadline = game.jury.deadlineAt;
   const vote = (side: JuryWinner) => {
@@ -34,7 +35,7 @@ export function PlatformJuryModal({ isOpen, onClose, game, localVote, voting = f
   return <Modal isOpen={isOpen} onClose={onClose} title="真人陪审席" description={caseData.title} className="platform-jury-modal">
     <div className="platform-jury-content">
       <h3>{heading}</h3>
-      {juryOpen && <p>每位真人陪审员限投一票。</p>}
+      {juryOpen && <p>{seated === false ? '陪审席已锁定。旁听可查看票数。' : '每位真人陪审员限投一票。'}</p>}
       <div className="platform-jury-options">{(['plaintiff', 'defendant'] as const).map(side => <button type="button" key={side} className={`platform-jury-option platform-jury-option--${side}`} onClick={() => vote(side)} disabled={!canVote} aria-pressed={localVote === side}>
         <span>支持{side === 'plaintiff' ? '原告' : '被告'}</span><strong>{side === 'plaintiff' ? caseData.plaintiffName : caseData.defendantName}</strong><span>{side === 'plaintiff' ? game.jury.plaintiffVotes : game.jury.defendantVotes} 票</span><small>{localVote === side ? '你已投给这一方' : voting ? '正在送出选票…' : canVote ? '投这一票' : (verdictPending || completed || unresolved) ? '投票已结束' : '暂不可投票'}</small>
       </button>)}</div>

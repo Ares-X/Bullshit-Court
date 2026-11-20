@@ -2,6 +2,11 @@ import type { CaseData, CourtRole, CourtSession } from './index';
 
 export type PlatformMode = 'practice' | 'multiplayer';
 export type JuryWinner = 'plaintiff' | 'defendant';
+export type JuryProp = 'tomato' | 'flipflop' | 'egg' | 'popcorn' | 'flower';
+export type JuryReactionInput = { kind: 'prop'; prop: JuryProp } | { kind: 'message'; text: string };
+export type JuryReaction = (
+  { kind: 'prop'; prop: JuryProp; target: CourtRole } | { kind: 'message'; text: string }
+) & { id: number };
 export interface CourtCapabilities { builtinJudge: boolean }
 export interface PublicSeat {
   role: CourtRole;
@@ -15,12 +20,13 @@ export interface PublicGame {
   revision: number;
   createdAt: number;
   updatedAt: number;
-  status: 'waiting-agents' | 'running' | 'waiting-jury' | 'waiting-verdict' | 'completed' | 'unresolved';
+  status: 'waiting-agents' | 'waiting-jurors' | 'running' | 'waiting-jury' | 'waiting-verdict' | 'completed' | 'unresolved';
   session: CourtSession;
   seats: Record<CourtRole, PublicSeat>;
   currentTurnId: string | null;
   currentRole: CourtRole | null;
   guidePath: string;
+  audience?: { seated: number; required: number; reactions: JuryReaction[] };
   jury: {
     plaintiffVotes: number;
     defendantVotes: number;
@@ -56,6 +62,7 @@ export interface GameCard {
   category?: string;
   seats: Record<CourtRole, PublicSeat>;
   jury: PublicGame['jury'];
+  audience?: Pick<NonNullable<PublicGame['audience']>, 'seated' | 'required'>;
   turnCount: number;
   ruling?: { winner: 'plaintiff' | 'defendant' | 'draw'; quote?: string; result: string };
 }

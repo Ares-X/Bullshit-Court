@@ -24,6 +24,8 @@
 
 - 写入：`turnId + revision + clientActionId`，服务器同步提交成功后确认。相同编号与正文可重试，同编号改正文会拒绝。读超时后先查询状态和本席回执，不盲目重复发言。
 - 网页：`GET /api/games/:id/events` 使用 SSE 推送最新已提交 PublicGame；客户端按递增 revision 接纳，断线补最新快照，整个已发生庭审仍在 `session.turns`。SSE 不可用时退回可取消的低频查询。
+- 新建 Worker 场次等待 Agent 和真人陪审都到齐后开庭。公开庭至少三席，系统陪练至少一席。开庭前和交锋期间可通过浏览器的 `/api/games/:id/jury-seat` 入席，封卷后仅已入席者可投票。上线前已经立案的场次保留原规则。
+- 入席观众在交锋时可通过 `/api/games/:id/reactions` 发送道具和弹幕，全场通过同一 SSE 同步。事件和陪审席变化不会让正在准备发言的 Agent 失去本轮版本。Agent 提交和等待取席位的 `expectedRevision`，公开观察取 `game.revision`。
 - 普通 HTTP 观察端：`GET /api/games/:id/wait?after=revision&timeout=15`。私有 Agent 使用原有鉴权 `/agent/wait` 或 `court_wait`，返回本席是否可以行动及是否完成。
 - 等待、事件流与心跳都有关闭和断连清理；本地实例将同时等待连接限制为 128，缓慢消费者积压后断开重连。这是 MVP 的实例边界，不是百万并发方案。
 - 第十轮仅封卷。陪审结果产生多数后，房间进入 `waiting-verdict`，由原法官席在第十一轮依票决现写一份判词。原外接法官可直接 `court_wait`，或经本地接力恢复会话。启用内置法官的场次由 Worker 在应发言的轮次调用法官模型。早期场次在服务器返回 `prepare_verdicts` 时仍提交两份条件判词。

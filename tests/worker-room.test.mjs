@@ -50,6 +50,7 @@ try {
   const fails = async (response, code) => { const body = await response.json(); assert.equal(body.error, code); return body; };
   const ticketSecret = ticket => ticket.split('.').slice(1).join('.');
   const turn = (text, extra = {}) => ({ text, emotion: 'normal', responseTo: [], evidenceIds: [], ...extra });
+  const sit = async (room, id, visitorId) => ok(await call(room, `${id}/jury-seat`, { method: 'POST', body: { visitorId } }));
 
   test('worker sha256 matches node:crypto', () => {
     for (const sample of ['', 'abc', '互联网法庭'.repeat(50), String(Math.random())]) {
@@ -136,6 +137,12 @@ try {
 
     const bearer = { authorization: 'Bearer ' + joined.seatToken };
     let state = await ok(await call(room, '/room123456/seat', { headers: bearer }));
+    assert.equal(state.game.status, 'waiting-jurors');
+    assert.equal(state.canSubmit, false);
+    assert.equal(state.game.session.turns.length, 0);
+    const visitorA = createHash('sha256').update('visitor-a').digest('hex');
+    await sit(room, '/room123456', visitorA);
+    state = await ok(await call(room, '/room123456/seat', { headers: bearer }));
     assert.equal(state.canSubmit, true);
     let revision = state.expectedRevision;
     for (const index of [0, 1, 2]) {
@@ -152,12 +159,15 @@ try {
     assert.equal(sealed.session.ruling, undefined);
 
     // The practice judge produces round 11 once a human casts the deciding ballot.
-    const visitorA = createHash('sha256').update('visitor-a').digest('hex');
+    const visitorB = createHash('sha256').update('visitor-b').digest('hex');
+    await fails(await call(room, '/room123456/jury-seat', { method: 'POST', body: { visitorId: visitorB } }), 'JURY_SEATING_CLOSED');
+    await fails(await call(room, '/room123456/votes', { method: 'POST', body: { visitorId: visitorB, winner: 'plaintiff', clientActionId: 'vote-b' } }), 'JURY_SEAT_REQUIRED');
+    await fails(await call(room, '/room123456/reactions', { method: 'POST', body: { visitorId: visitorA, kind: 'message', text: '好', clientActionId: 'sealed-reaction' } }), 'REACTION_CLOSED');
     const voted = await ok(await call(room, '/room123456/votes', { method: 'POST', body: { visitorId: visitorA, winner: 'plaintiff', clientActionId: 'vote-a' } }));
     assert.equal(voted.status, 'completed');
     assert.equal(voted.session.ruling.winner, 'plaintiff');
     await fails(await call(room, '/room123456/votes', { method: 'POST', body: { visitorId: visitorA, winner: 'defendant', clientActionId: 'vote-a2' } }), 'ALREADY_VOTED');
-    await fails(await call(room, '/room123456/votes', { method: 'POST', body: { visitorId: createHash('sha256').update('visitor-b').digest('hex'), winner: 'plaintiff', clientActionId: 'vote-b' } }), 'VOTE_CLOSED');
+    await fails(await call(room, '/room123456/votes', { method: 'POST', body: { visitorId: visitorB, winner: 'plaintiff', clientActionId: 'vote-b' } }), 'VOTE_CLOSED');
 
     // Lobby projection reached D1 with a card, not the full session.
     assert.ok(env.DB.writes.some(write => write.sql.includes('INSERT INTO games')));
@@ -168,6 +178,106 @@ try {
     assert.ok(!JSON.stringify(card).includes('"turns"'), 'card projection must not carry turn text');
   });
 
+  test('Worker jury membership and live reactions share a visitor identity and update public events independently of agent turns', async () => {
+    const { room, env, storage } = makeRoom({ COURT_VISITOR_SECRET: 'test-visitor-secret' });
+    let currentRoom = room;
+    let now = 100_000;
+    room.now = () => now;
+    env.COURT_ROOM = { idFromName: id => id, get: () => ({ fetch: (url, init) => currentRoom.fetch(new Request(url, init)) }) };
+    const id = '/roomjurors';
+    const origin = 'https://court.test';
+    const browser = (path, init) => worker.fetch(new Request(origin + path, init), env);
+    const requestVisitor = async () => {
+      const credentials = await browser('/api/visitor');
+      const cookie = credentials.headers.get('set-cookie').split(';')[0];
+      return { cookie, 'x-court-csrf': (await ok(credentials)).csrfToken };
+    };
+    const post = (endpoint, headers, body) => browser(`/api/games${id}/${endpoint}`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
+    });
+    const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'judge' }, gameId: id.slice(1) } }));
+    const joined = await ok(await call(room, `${id}/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: '法官', clientActionId: 'join' } }));
+    const bearer = { authorization: 'Bearer ' + joined.seatToken };
+    const [visitor, other] = [await requestVisitor(), await requestVisitor()];
+    const membership = async (headers = {}) => ok(await browser(`/api/games${id}/jury-seat`, { headers }));
+    assert.deepEqual(await membership(), { seated: false });
+    assert.deepEqual(await membership(visitor), { seated: false });
+    const prop = { kind: 'prop', prop: 'tomato', clientActionId: 'throw' };
+    await fails(await post('reactions', visitor, prop), 'JURY_SEAT_REQUIRED');
+    await fails(await post('jury-seat', {}, {}), 'CSRF');
+    await fails(await post('jury-seat', { ...visitor, origin: 'https://elsewhere.test' }, {}), 'ORIGIN');
+    await fails(await post('jury-seat', { ...visitor, ...bearer }, {}), 'ROLE_SCOPE');
+    const first = await ok(await post('jury-seat', visitor, { visitorId: 'spoofed-identity' }));
+    assert.equal(first.status, 'running');
+    assert.equal(first.session.turns.length, 0);
+    assert.deepEqual(first.audience, { seated: 1, required: 1, reactions: [] });
+    assert.equal((await ok(await post('jury-seat', visitor, {}))).revision, first.revision);
+    assert.deepEqual(await membership(visitor), { seated: true });
+    assert.deepEqual(await membership(other), { seated: false });
+    const agent = await ok(await call(room, `${id}/seat`, { headers: bearer }));
+    assert.equal(agent.canSubmit, true);
+    const polling = call(room, `${id}/seat/wait?after=${agent.expectedRevision}&timeout=2`, { headers: bearer });
+    let agentWoke = false;
+    void polling.then(() => { agentWoke = true; });
+    const abort = new AbortController();
+    const events = await browser(`/api/games${id}/events?after=${first.revision}`, { signal: abort.signal });
+    const reader = events.body.getReader();
+    try {
+      const thrown = await ok(await post('reactions', visitor, { ...prop, target: 'defendant' }));
+      assert.deepEqual(thrown.audience.reactions, [{ id: thrown.revision, kind: 'prop', prop: 'tomato', target: 'judge' }]);
+      const frame = new TextDecoder().decode((await reader.read()).value);
+      const synced = JSON.parse(frame.split('\n').find(line => line.startsWith('data: ')).slice(6));
+      assert.equal(synced.revision, thrown.revision);
+      assert.deepEqual(synced.audience, thrown.audience);
+      assert.equal(agentWoke, false);
+      assert.equal((await ok(await call(room, `${id}/seat`, { headers: bearer }))).expectedRevision, agent.expectedRevision);
+      assert.equal((await ok(await post('reactions', visitor, prop))).revision, thrown.revision);
+      await fails(await post('reactions', visitor, { ...prop, prop: 'egg' }), 'ACTION_CONFLICT');
+      await fails(await post('reactions', visitor, { ...prop, clientActionId: 'too-soon' }), 'REACTION_RATE_LIMIT');
+      await fails(await post('reactions', visitor, { ...prop, prop: 'gavel' }), 'INVALID_REACTION');
+      await fails(await post('reactions', visitor, { kind: 'message', text: '🤍'.repeat(61), clientActionId: 'too-long' }), 'INVALID_REACTION');
+      assert.equal((await ok(await post('jury-seat', other, {}))).audience.seated, 2);
+      assert.equal(agentWoke, false);
+    } finally {
+      abort.abort();
+      await reader.cancel();
+    }
+    const opening = { turnId: agent.turnId, revision: agent.expectedRevision, clientActionId: 'opening' };
+    await fails(await call(room, `${id}/seat/turns`, { method: 'POST', headers: bearer, body: {
+      ...opening, payload: turn('🧑'.repeat(181)),
+    } }), 'TURN_TOO_LONG');
+    const mcp = await ok(await browser('/mcp', {
+      method: 'POST',
+      headers: { ...bearer, accept: 'application/json, text/event-stream', 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+        name: 'court_speak', arguments: { ...opening, ...turn('🧑'.repeat(180), { shout: 'ORDER' }) },
+      } }),
+    }));
+    assert.equal(mcp.result.isError, false);
+    const spoken = mcp.result.structuredContent;
+    assert.equal((await ok(await polling)).expectedRevision, spoken.expectedRevision);
+    assert.equal(spoken.game.session.turns[0].text, '🧑'.repeat(180));
+    assert.equal(spoken.game.session.turns[0].shout, 'ORDER');
+    const message = { kind: 'message', text: '🤍'.repeat(60), clientActionId: 'cheer' };
+    assert.equal((await ok(await post('reactions', other, message))).audience.reactions.at(-1).text, message.text);
+    now += 1200;
+    const next = await ok(await post('reactions', visitor, { ...prop, clientActionId: 'throw-again' }));
+    assert.equal(next.audience.reactions.at(-1).target, spoken.game.session.turns.at(-1).speaker);
+    for (let i = 0; i < 20; i++) {
+      now += 1200;
+      await ok(await post('reactions', visitor, { ...prop, clientActionId: `throw-${i}` }));
+    }
+    currentRoom = new CourtRoom({ storage }, env);
+    currentRoom.now = () => now;
+    assert.deepEqual(await membership(visitor), { seated: true });
+    const recovered = await ok(await browser(`/api/games${id}`));
+    const reactions = recovered.audience.reactions;
+    assert.equal(reactions.length, 20);
+    assert.ok(reactions.every((event, i) => i === 0 || event.id > reactions[i - 1].id));
+    assert.equal((await ok(await post('reactions', other, message))).revision, recovered.revision);
+    await fails(await post('reactions', visitor, { ...prop, clientActionId: 'retry-after-eviction' }), 'REACTION_RATE_LIMIT');
+  });
+
   test('jury deadline alarm settles an unvoted case as unresolved', async () => {
     const { room } = makeRoom();
     const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'judge', mode: 'practice', clientActionId: 'create-2' }, gameId: 'room999999' } }));
@@ -176,6 +286,7 @@ try {
     assert.equal(sealed.status, 'waiting-agents');
     await fails(await call(room, '/room999999/votes', { method: 'POST', body: { visitorId: 'x'.repeat(64), winner: 'plaintiff', clientActionId: 'v' } }), 'VOTE_CLOSED');
     const joined = await ok(await call(room, `/room999999/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: '判官', clientActionId: 'join-j' } }));
+    await sit(room, '/room999999', 'juror');
     // Ten rounds run without the judge seat: practice seats auto-play theirs; the judge seat is external
     // and must submit its four turns, then wait for the jury.
     const bearer = { authorization: 'Bearer ' + joined.seatToken };
@@ -203,6 +314,8 @@ try {
     const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'judge' }, gameId: id.slice(1) } }));
     const stored = storage.map.get('game');
     delete stored.postJury;
+    delete stored.jurors;
+    delete stored.actionRevision;
     const legacy = new CourtRoom({ storage }, env);
     const joined = await ok(await call(legacy, `${id}/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: '旧房间法官', clientActionId: 'join-legacy' } }));
     const headers = { authorization: 'Bearer ' + joined.seatToken };
@@ -250,6 +363,13 @@ try {
       const joined = await ok(await call(room, `${id}/ticket/${ticketSecret(invite.ticket)}/claim`, { method: 'POST', body: { agentName: invite.role, clientActionId: 'join-' + invite.role } }));
       headers[invite.role] = { authorization: 'Bearer ' + joined.seatToken };
       if (invite.role === 'plaintiff') assert.equal(await storage.getAlarm(), null);
+    }
+    assert.equal((await ok(await call(room, id))).status, 'waiting-jurors');
+    assert.equal(await storage.getAlarm(), null);
+    for (let i = 0; i < 3; i++) {
+      const game = await sit(room, id, `visitor-${i}`);
+      assert.equal(game.status, i < 2 ? 'waiting-jurors' : 'running');
+      assert.equal(await storage.getAlarm(), i < 2 ? null : now);
     }
     assert.equal(await storage.getAlarm(), now);
     const requests = [];
@@ -320,6 +440,7 @@ try {
     const { room } = makeRoom();
     const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'plaintiff', mode: 'practice', clientActionId: 'create-3' }, gameId: 'room777777' } }));
     const joined = await ok(await call(room, `/room777777/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: 'A', clientActionId: 'j' } }));
+    await sit(room, '/room777777', 'juror');
     const bearer = { authorization: 'Bearer ' + joined.seatToken };
     const state = await ok(await call(room, '/room777777/seat', { headers: bearer }));
     // The plaintiff seat cannot submit speech attributed to the judge.

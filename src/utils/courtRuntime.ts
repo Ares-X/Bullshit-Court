@@ -13,6 +13,7 @@ export const COURT_ROLE_LABELS: Record<CourtRole, string> = {
 const ROLES: CourtRole[] = ['judge', 'plaintiff', 'defendant'];
 const PHASES: CourtPhase[] = ['opening', 'statements', 'inquiry', 'evidence', 'deliberation', 'verdict'];
 const EMOTIONS: Emotion[] = ['normal', 'confident', 'angry', 'shocked', 'smug', 'sweating', 'gavel'];
+export const COURT_SHOUTS = ['OBJECTION', 'HOLD_IT', 'TAKE_THAT', 'ORDER'] as const;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
 export class CourtRuntimeError extends Error {
@@ -179,6 +180,8 @@ function acceptTurn(session: CourtSession, payload: unknown, requireRuling: bool
   const requiredEvidence = session.interventions.filter(item => step.interventionIds.includes(item.id)).flatMap(item => item.evidence ? [item.evidence.id] : []);
   if (requiredEvidence.some(id => !evidenceIds.includes(id))) return invalid('回应必须针对本轮的新证物。');
   if (raw.emotion !== undefined && !EMOTIONS.includes(raw.emotion as Emotion)) return invalid('表情类型无效。');
+  const shout = COURT_SHOUTS.find(value => value === raw.shout);
+  if (raw.shout !== undefined && !shout) return invalid('拍案动作无效。');
   const ruling = requireRuling ? validateRuling(session, raw.ruling) : undefined;
   if (!requireRuling && raw.ruling !== undefined) return invalid('只有法官终局阶段可以附带裁决。');
   const profile = getCourtRoleProfile(session.caseData, step.role);
@@ -187,6 +190,7 @@ function acceptTurn(session: CourtSession, payload: unknown, requireRuling: bool
     id: `${session.id}-turn-${session.turns.length + 1}`, speaker: step.role, speakerName: profile.name,
     avatar: profile.avatar, phase: step.phase, text: str(raw.text, '公开发言'),
     emotion: raw.emotion as Emotion || (step.role === 'judge' ? 'gavel' : 'normal'),
+    ...(shout ? { shout } : {}),
     responseTo, evidenceIds, tiltChange: presentationTilt(session, step, evidenceIds),
     ...(evidenceIds[0] ? { evidence: clone(session.evidences.find(item => item.id === evidenceIds[0])!) } : {}),
   };
@@ -350,12 +354,15 @@ export function rehearsalTurn(session: CourtSession, step: CourtScheduledTurn): 
       everyday: { plaintiff: '我把事说具体。', defendant: '我先解释一句。', judge: '逐条说清，别抢话。' },
       city: { plaintiff: '我就盯一个细节。', defendant: '先别急着给我定性。', judge: '先停一下，细节比音量重要。' },
       night: { plaintiff: '事情已经够累了，我直说。', defendant: '行，我解释，但别断章取义。', judge: '都先喘口气，有事一件件说。' },
+      gavel: { plaintiff: '我今天就掰扯这一件事。', defendant: '帽子先别扣，我把经过还原一下。', judge: '咚！惊堂木只响一声，事情从头讲。' },
+      chill: { plaintiff: '我只问这一桩，别想拿猫条糊弄我。', defendant: '我有个说法，比这口锅轻一点。', judge: '（肉垫碰槌）喵。挑最要紧的说。' },
     };
     if (castId && cadence[castId]) text = cadence[castId][step.role] + text;
   }
   const replyIds = [...new Set([...step.interventionIds, ...(opponent ? [opponent.id] : [])])];
   const payload: Record<string, unknown> = { speaker: step.role, text,
     emotion: authoredTurn?.emotion || (step.role === 'judge' ? 'gavel' : step.phase === 'inquiry' ? 'shocked' : 'confident'),
+    ...(authoredTurn?.shout ? { shout: authoredTurn.shout } : {}),
     responseTo: replyIds, evidenceIds: cited.map(e => e.id) };
   if (step.phase === 'verdict') {
     const winner = session.juryVote!;

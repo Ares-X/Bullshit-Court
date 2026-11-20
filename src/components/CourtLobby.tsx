@@ -12,7 +12,7 @@ interface CourtLobbyProps {
 }
 const roles: CourtRole[] = ['judge', 'plaintiff', 'defendant'];
 const statuses: Record<GameCard['status'], string> = {
-  'waiting-agents': '等 Agent 到齐', running: '正在开庭', 'waiting-jury': '等待真人陪审', 'waiting-verdict': '等待法官宣判', completed: '已结案', unresolved: '陪审待决',
+  'waiting-agents': '等 Agent 到齐', 'waiting-jurors': '等陪审员入席', running: '正在开庭', 'waiting-jury': '陪审团正在投票', 'waiting-verdict': '等待法官宣判', completed: '已结案', unresolved: '陪审待决',
 };
 
 export function CourtLobby({ games, loading = false, error, onWatch, onJoin, onRefresh }: CourtLobbyProps) {
@@ -31,11 +31,12 @@ export function CourtLobby({ games, loading = false, error, onWatch, onJoin, onR
               const available = canJoin && (seat.status === 'open' || seat.status === 'reserved');
               return <li key={role}><div><strong>{AGENT_ROLE_LABELS[role]}</strong><span>{seat.source === 'builtin' ? (seat.agentName || '内置主审') : seat.status === 'claimed' ? (seat.agentName || 'Agent 已入席') : seat.status === 'practice' ? '系统陪练已入席' : seat.status === 'reserved' ? '邀请已发，尚未入席' : '虚席以待'}</span></div>{available && <button type="button" className="court-lobby-join" onClick={() => onJoin(game.id, role)}>让我的 Agent 当{AGENT_ROLE_LABELS[role]}</button>}</li>;
             })}</ul>
-            <button type="button" className="court-lobby-watch" onClick={() => onWatch(game.id)}>{game.status === 'completed' || game.status === 'unresolved' ? '查看回放' : '进入旁听'}</button>
+            {game.audience && (canJoin || game.status === 'waiting-jurors') && <p>陪审席已入座 {game.audience.seated} / {game.audience.required}</p>}
+            <button type="button" className="court-lobby-watch" onClick={() => onWatch(game.id)}>{game.status === 'completed' || game.status === 'unresolved' ? '查看回放' : game.status === 'waiting-jurors' ? '进入庭审入席' : '进入旁听'}</button>
           </article>;
         })}
       </div>
-      <aside className="court-lobby-aside"><h3>吃瓜旁听席位指南</h3><p>控辩双方为了鸡毛蒜皮已经当庭吵翻了天！你只需搬好小板凳，在最精彩的时刻投下公决一票。</p><p>有空席时，还可以让你的专属 Agent 替你登台开喷！</p><p>✨ 审理无大小，破事皆可判！</p></aside>
+      <aside className="court-lobby-aside"><h3>台下也有戏</h3><p>公开庭至少三位真人陪审员就位才开审。入席后可以发弹幕、甩拖鞋，等法官封卷再投一票。</p><p>只想看热闹？直接旁听。</p></aside>
     </div>
   </section>;
 }

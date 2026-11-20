@@ -9,6 +9,21 @@ export interface CourtPortraitAtlas {
   frames: Record<CourtExpression, Record<CourtRole, CourtPortraitFrame>>;
 }
 
+interface JudgePortrait {
+  asset: string;
+  frames: Record<CourtExpression, CourtPortraitFrame>;
+  width: number;
+  height: number;
+}
+
+const judgeFrames = {
+  neutral: { x: 0, y: 0, width: 64, height: 64 },
+  speaking: { x: 64, y: 0, width: 64, height: 64 },
+  questioning: { x: 128, y: 0, width: 64, height: 64 },
+  confident: { x: 0, y: 64, width: 64, height: 64 },
+  shocked: { x: 64, y: 64, width: 64, height: 64 },
+} satisfies JudgePortrait['frames'];
+
 export interface CourtCast {
   id: string;
   name: string;
@@ -16,6 +31,7 @@ export interface CourtCast {
   judgeName: string;
   asset: string;
   atlas: CourtPortraitAtlas;
+  judgePortrait?: JudgePortrait;
   style: Record<CourtRole, string>;
   voices: Record<CourtRole, { pitch: number; rate: number }>;
 }
@@ -51,6 +67,28 @@ export const COURT_CASTS: CourtCast[] = [
     },
     voices: { plaintiff: { pitch: 0.98, rate: 1.02 }, defendant: { pitch: 1.08, rate: 1.04 }, judge: { pitch: 0.78, rate: 0.91 } },
   },
+  {
+    id: 'gavel', name: '包公的惊堂庭', description: '铁面赛博包公拍惊堂木，小事也要问到点上', judgeName: '铁面赛博包公',
+    asset: '/assets/casts/night-pixel.png', atlas: PIXEL_ATLASES.night,
+    judgePortrait: { asset: '/assets/casts/gavel-pixel.png', frames: judgeFrames, width: 192, height: 128 },
+    style: {
+      plaintiff: '你是原告本人，用「我」说话。像捧着一张离谱收据来击鼓鸣冤：先点出具体遭遇，再把鸡毛蒜皮说出登闻鼓的气势。被追问时，把嗓门换成能对得上的细节。',
+      defendant: '你是被告本人，用「我」说话。公堂上人人都忙着给你扣帽子，你先把经过讲明白，再问问那顶帽子到底是谁买的。认做过的事，接上一轮的话拆一个夸张说法。',
+      judge: '你是铁面赛博包公，冠上有月牙，手边有惊堂木。把小纠纷当御前急案，开口雷厉风行，追问直奔一件东西、一个动作或一个时刻。偶尔来一声「咚！速速道来」，威势落在好问题上。封卷时把输赢交给陪审，宣判时报票数再说理由。',
+    },
+    voices: { plaintiff: { pitch: 1.01, rate: 1.05 }, defendant: { pitch: 0.93, rate: 1.00 }, judge: { pitch: 0.76, rate: 1.01 } },
+  },
+  {
+    id: 'chill', name: '咪审的午睡庭', description: '戴领结的三花猫用肉垫拍槌，问完要去开罐头', judgeName: '和事佬咪审',
+    asset: '/assets/casts/everyday-pixel.png', atlas: PIXEL_ATLASES.everyday,
+    judgePortrait: { asset: '/assets/casts/chill-pixel.png', frames: judgeFrames, width: 192, height: 128 },
+    style: {
+      plaintiff: '你是原告本人，用「我」说话。像想把猫从键盘上请下来一样耐心，但那个过不去的细节一定要说清楚。接住对方一句话，用三两句把实际麻烦和你想要的解决办法讲明白。',
+      defendant: '你是被告本人，用「我」说话。像刚被猫当场抓包的人，先认自己确实做过什么，再拆对方多算在你头上的那一截。语气轻松，理由越具体越好，嘴硬时也允许笑自己一下。',
+      judge: '你是和事佬咪审，戴领结的三花猫，一脸想下班开罐头。肉垫拍一下槌，吐槽很轻，问题却正中要害。看似嫌麻烦，听见含糊处会立刻睁开一只眼。封卷请真人陪审投票，宣判先报票数，用一句猫式冷幽默收尾。',
+    },
+    voices: { plaintiff: { pitch: 1.15, rate: 1.00 }, defendant: { pitch: 1.00, rate: 1.01 }, judge: { pitch: 1.10, rate: 0.89 } },
+  },
 ];
 
 export function drawCourtCast(): CourtCast {
@@ -67,7 +105,8 @@ export function applyCourtCast(caseData: CaseData, castId: string): CaseData {
   const profile = (role: CourtRole): AgentProfile => ({
     id: `cast:${cast.id}:${role}`,
     name: role === 'judge' ? cast.judgeName : role === 'plaintiff' ? caseData.plaintiffName : caseData.defendantName,
-    model: '独立庭审角色', persona: cast.style[role], avatar: cast.asset,
+    model: '独立庭审角色', persona: cast.style[role],
+    avatar: (role === 'judge' && cast.judgePortrait?.asset) || cast.asset,
   });
   return { ...caseData, agents: { judge: profile('judge'), plaintiff: profile('plaintiff'), defendant: profile('defendant') } };
 }

@@ -60,7 +60,6 @@
 .court-phases .is-current { color: var(--gold); font-weight: 800; }
 .court-phases .is-current i { background: var(--gold); color: var(--ink); border-color: var(--gold); }
 .court-theatre { position: relative; padding: 17px 25px 0; background: linear-gradient(90deg, #102c37, #214350 50%, #102c37); }
-.court-theatre__sign { display: flex; align-items: center; justify-content: center; gap: 15px; color: #f4d499; font-family: 'ZCOOL KuaiLe', sans-serif; font-size: 17px; letter-spacing: 3px; padding-bottom: 12px; opacity: .9; }
 .court-actors { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: end; gap: 24px; max-width: 860px; margin: auto; padding-top: 7px; }
 .court-actor { position: relative; min-width: 0; }
 .court-actor--judge { align-self: center; transform: translateY(-9px); }
@@ -613,4 +612,210 @@ button.cast-card:hover {
   border-radius: 4px;
   padding: 2px 6px;
   margin-top: 4px;
+}
+
+.court-juror-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px 18px;
+  padding: 14px 25px;
+  background: #1c303a;
+  border-bottom: 1px solid #4b6064;
+}
+.court-juror-bar__info { display: flex; align-items: center; flex: 1 1 260px; gap: 12px; }
+.court-juror-bar__info > svg { flex: none; color: var(--gold); }
+.court-juror-bar h2 { margin: 0 0 3px; font-size: 15px; font-weight: 800; color: var(--gold); }
+.court-juror-bar p, .court-juror-bar__status { font-size: 12px; line-height: 1.65; color: var(--muted); }
+.court-juror-bar__status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.court-juror-bar__status strong { display: inline-flex; align-items: center; gap: 5px; color: var(--teal); }
+.court-juror-bar .court-juror-bar__error { flex-basis: 100%; color: #ffb0a2; }
+.court-juror-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 0 4px;
+}
+.court-juror-tools__error { flex-basis: 100%; color: #ffb0a2; font-size: 12px; }
+.court-juror-tools__props p { color: #c5d4d5; font-size: 12px; margin-bottom: 6px; }
+.court-juror-tools__buttons { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.court-prop-btn {
+  --prop-color: #fef9c3;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--prop-color) 44%, #112733);
+  border-radius: 8px;
+  background: #172b38;
+  color: var(--prop-color);
+  font-size: 12px;
+  font-weight: 800;
+  transition: background .16s, transform .16s;
+}
+.court-prop-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--prop-color) 21%, #172b38); transform: translateY(-1px); }
+.court-prop-btn:active:not(:disabled) { transform: scale(.96); }
+.court-prop-btn--tomato { --prop-color: #fca5a5; }
+.court-prop-btn--flipflop { --prop-color: #fde68a; }
+.court-prop-btn--egg { --prop-color: #fef08a; }
+.court-prop-btn--flower { --prop-color: #a7f3d0; }
+.court-danmaku-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  flex: 1 1 250px;
+  align-items: center;
+  gap: 6px;
+  max-width: 380px;
+  align-self: end;
+}
+.court-danmaku-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #577278;
+  border-radius: 8px;
+  background: #112733;
+  color: var(--paper);
+  font-size: 16px;
+}
+.court-danmaku-form input::placeholder { color: #a9b5bc; font-size: 12px; }
+.court-danmaku-form__limit { grid-row: 2; grid-column: 1 / -1; color: #ffb0a2; font-size: 12px; }
+.court-actor-reaction { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.court-stun-badge {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 4px 8px;
+  border: 1px solid #ffe5a5;
+  border-radius: 20px;
+  background: #652e28;
+  color: #fff5eb;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 4px 14px #090d1280;
+  animation: courtReactionBadge .36s ease-out both;
+}
+.court-actor-reaction--flower .court-stun-badge { background: #235746; }
+.court-actor-reaction--popcorn .court-stun-badge { background: #554321; }
+.court-splat-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(24px, 5vw, 54px);
+  filter: drop-shadow(0 6px 8px #090d12b3);
+  animation: courtReactionSplat .6s cubic-bezier(.175,.885,.32,1.275) both;
+}
+@keyframes courtReactionBadge {
+  from { transform: translate(-50%, 8px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+@keyframes courtReactionSplat {
+  from { transform: translate(35%, -100%) scale(.3) rotate(-40deg); opacity: 0; }
+  70% { transform: translate(-50%, -50%) scale(1.25) rotate(12deg); opacity: 1; }
+  to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+.court-scale-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  max-width: 350px;
+  padding: 8px 14px;
+  margin: 0 auto 12px;
+  border: 1px solid #54707a;
+  border-radius: 10px;
+  background: #112833;
+  box-shadow: 0 3px 8px #090d1250;
+  font-size: 12px;
+  font-weight: 800;
+}
+.court-scale-label--plaintiff { color: #fca5a5; }
+.court-scale-label--defendant { color: var(--teal); }
+.court-scale-center { display: grid; place-items: center; gap: 4px; color: var(--gold); }
+.court-scale-center p { margin: 0; }
+.court-scale-beam { display: flex; align-items: center; gap: 16px; transition: transform .5s cubic-bezier(.34,1.56,.64,1); }
+.court-scale-pan { width: 22px; height: 4px; border-radius: 2px; background: #c2a16b; }
+.court-scale-pan--left { border-top: 2px solid #f48a7a; }
+.court-scale-pan--right { border-top: 2px solid #73d6cd; }
+
+.court-shout-banner {
+  position: absolute;
+  top: clamp(80px, 11vw, 140px);
+  left: 0;
+  right: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.court-shout-banner__inner {
+  min-width: 170px;
+  padding: 9px 24px;
+  background: #9f2b2c;
+  border: 2px solid #ffbeb1;
+  border-radius: 12px;
+  color: #fff6e6;
+  box-shadow: 6px 7px 0 #090d1290;
+  text-align: center;
+  animation: courtShoutIn .35s cubic-bezier(.175,.885,.32,1.275) both;
+}
+.court-shout-banner--hold_it .court-shout-banner__inner,
+.court-shout-banner--order .court-shout-banner__inner { background: #744016; border-color: #ffe396; }
+.court-shout-banner--take_that .court-shout-banner__inner { background: #1d4b78; border-color: #b7deff; }
+.court-shout-banner__inner span { display: block; margin-bottom: 3px; font-size: 12px; }
+.court-shout-banner__inner strong { font-size: clamp(23px, 5vw, 34px); font-family: 'ZCOOL KuaiLe', sans-serif; }
+@keyframes courtShoutIn {
+  from { transform: scale(.55) rotate(-10deg); opacity: 0; }
+  to { transform: scale(1) rotate(-4deg); opacity: 1; }
+}
+.court-danmaku-lane {
+  position: absolute;
+  inset: 66px 0 auto;
+  height: 90px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 8;
+}
+.court-danmaku-item {
+  position: absolute;
+  left: 0;
+  width: max-content;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 10px;
+  background: #132733eb;
+  border: 1px solid #849b9c;
+  border-radius: 20px;
+  color: #fff7e5;
+  font-size: 12px;
+  font-weight: 800;
+  animation: courtDanmakuFly 8s linear both;
+}
+@keyframes courtDanmakuFly {
+  0% { transform: translateX(100vw); opacity: 0; }
+  10%, 88% { opacity: 1; }
+  100% { transform: translateX(-110%); opacity: 0; }
+}
+@media (max-width: 640px) {
+  .court-juror-bar { padding: 12px; }
+  .court-juror-bar__info { flex-basis: 100%; }
+  .court-prop-btn { min-height: 40px; padding-inline: 8px; }
+  .court-danmaku-form { max-width: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .court-scale-beam, .court-prop-btn { transition: none; }
+  .court-prop-btn:hover:not(:disabled), .court-prop-btn:active:not(:disabled) { transform: none; }
+  .court-splat-overlay, .court-stun-badge, .court-shout-banner__inner, .court-danmaku-item { animation: none; }
+  .court-danmaku-item { left: auto; right: 8px; }
 }

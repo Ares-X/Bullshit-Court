@@ -41,7 +41,7 @@ export function generateBuiltinJudgeTurn(apiKey: string, game: PublicGame, attem
     { role: 'system', content: [
       judge.style.judge,
       job,
-      '写给坐在台下的人听。60–160 个汉字，一个争点，一个新梗。案卷里的数值按原样报，材料没说清的就留白。',
+      '写给坐在台下的人听。台词 60–140 字，一个争点，一个新梗。案卷里的数值按原样报，材料没说清的就留白。',
       '理由也用你平时开口的口气。把最后一句留给笑点，说完就落槌。',
       '只交一段 JSON。结构为 {"speaker":"judge","text":"台词","emotion":"gavel","responseTo":[],"evidenceIds":[]}。两个数组填你实际提到的案卷编号。',
       verdict

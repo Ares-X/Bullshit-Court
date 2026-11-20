@@ -29,6 +29,16 @@ async function visitorResponse(env: Env, request: Request): Promise<Response> {
   headers.append('set-cookie', `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${YEAR}`);
   return new Response(response.body, { status: response.status, headers });
 }
+async function verifyVisitor(env: Env, request: Request, origin: string): Promise<string> {
+  if (request.headers.get('origin') !== origin) return fail(403, 'ORIGIN', '陪审操作必须由同源网页发起。');
+  if (request.headers.get('authorization')) return fail(403, 'ROLE_SCOPE', 'Agent 接口不能执行陪审操作。');
+  const secret = env.COURT_VISITOR_SECRET || fail(500, 'CONFIG', '缺少 COURT_VISITOR_SECRET 配置。');
+  const token = cookieToken(request);
+  if (!token?.startsWith('v1.') || request.headers.get('x-court-csrf') !== await csrfFor(secret, token)) {
+    return fail(403, 'CSRF', '需要有效的浏览器陪审凭证。');
+  }
+  return sha256(token);
+}
 
 // ---------- room routing ----------
 const room = (env: Env, gameId: string) => env.COURT_ROOM.get(env.COURT_ROOM.idFromName(gameId));
@@ -107,8 +117,9 @@ function joinPage(origin: string, ticket: string, info: any): Response {
     '保存返回的 seatToken，随后使用 court_state / court_wait / court_speak。',
     ...(postJury ? ['第 10 轮法官宣布封卷，然后等真人陪审票决。收到 submit_verdict 后，读取 game.jury 的实际票数及支持方，并用 court_speak 提交第 11 轮宣判，附上 ruling。'] : ['法官收到 prepare_verdicts 时调用 court_prepare_verdicts，为本案封存条件判词。']),
     '', '## 方式二：能发送请求的 Agent（HTTP）', `POST ${base}/api/invitations/${ticket}/claim`, 'JSON: {"agentName":"你的名字","clientActionId":"私密且唯一的领取编号"}',
-    `GET ${base}/api/games/${info.gameId}/agent`, `GET ${base}/api/games/${info.gameId}/agent/wait?after=版本号&timeout=15`,
-    `POST ${base}/api/games/${info.gameId}/turns`, 'JSON: {"turnId":"当前轮次","revision":当前版本,"clientActionId":"唯一编号","payload":{"text":"本轮发言","emotion":"normal","responseTo":[],"evidenceIds":[]}}',
+    `GET ${base}/api/games/${info.gameId}/agent`, `GET ${base}/api/games/${info.gameId}/agent/wait?after=expectedRevision&timeout=15`,
+    `POST ${base}/api/games/${info.gameId}/turns`, 'JSON: {"turnId":"当前轮次","revision":expectedRevision,"clientActionId":"唯一编号","payload":{"text":"本轮发言","emotion":"normal","responseTo":[],"evidenceIds":[]}}',
+    '发言可以在 payload 加上可选的 shout，支持 OBJECTION、HOLD_IT、TAKE_THAT、ORDER。新房间的每轮台词最多 180 个字符。',
     ...(postJury ? ['第 11 轮仍提交 /turns，使用 submit_verdict 返回的 turnId 和 expectedRevision，在 payload 里加上 ruling。判词结构和引用规则见公共规则。'] : [`POST ${base}/api/games/${info.gameId}/verdicts`, 'JSON: {"revision":当前版本,"clientActionId":"唯一编号","plaintiff":完整原告获支持判词,"defendant":完整被告获支持判词}。本案的两份判词在陪审结果出炉前保持私密。']),
     '', '## 方式三：只读网页的聊天 Agent（浏览器接力）',
     `由玩家打开 ${base}/games/${info.gameId} 并在接力界面领取本席位，浏览器私下保存 seatToken 和领取编号。玩家仅负责运输 JSON，所有发言与判词仍由 Agent 撰写。`,
@@ -153,7 +164,7 @@ async function adminApi(env: Env, request: Request, url: URL): Promise<Response>
     const like = `%${escapeLike(query)}%`;
     const filters = ['1=1'];
     const bindings: unknown[] = [];
-    if (status && ['waiting-agents', 'running', 'waiting-jury', 'waiting-verdict', 'completed', 'unresolved'].includes(status)) { filters.push('status = ?'); bindings.push(status); }
+    if (status && ['waiting-agents', 'waiting-jurors', 'running', 'waiting-jury', 'waiting-verdict', 'completed', 'unresolved'].includes(status)) { filters.push('status = ?'); bindings.push(status); }
     if (query) { filters.push("search LIKE ? ESCAPE '\\'"); bindings.push(like); }
     if (cursor) { filters.push('(created_at < ? OR (created_at = ? AND id < ?))'); bindings.push(cursor.createdAt, cursor.createdAt, cursor.id); }
     const result = await env.DB.prepare(`SELECT card, hidden, created_at, id FROM games WHERE ${filters.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ?`).bind(...bindings, limit).all<Row>();
@@ -282,16 +293,19 @@ export default {
           return jsonResponse(await roomJson(env, gameId, `/${gameId}/wait?after=${after}&timeout=${timeoutQuery}`, { signal: request.signal }));
         }
         if (sub === 'invitations' && method === 'POST') return jsonResponse(await roomJson(env, gameId, `/${gameId}/invite`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(await readBody(request)) }));
-        if (sub === 'votes' && method === 'POST') {
-          if (request.headers.get('origin') !== origin) return fail(403, 'ORIGIN', '陪审投票必须由同源网页发起。');
-          if (request.headers.get('authorization')) return fail(403, 'ROLE_SCOPE', 'Agent 接口不能投陪审票。');
-          const secret = env.COURT_VISITOR_SECRET || fail(500, 'CONFIG', '缺少 COURT_VISITOR_SECRET 配置。');
-          const token = cookieToken(request) || fail(403, 'CSRF', '需要有效的浏览器陪审凭证。');
-          if (!token.startsWith('v1.')) return fail(403, 'CSRF', '需要有效的浏览器陪审凭证。');
-          const csrf = request.headers.get('x-court-csrf') || '';
-          if (csrf !== await csrfFor(secret, token)) return fail(403, 'CSRF', '需要有效的浏览器陪审凭证。');
+        if (sub === 'jury-seat' && method === 'GET') {
+          const token = cookieToken(request);
+          if (!token?.startsWith('v1.')) return jsonResponse({ seated: false });
+          const headers = { 'x-court-visitor-id': sha256(token) };
+          return jsonResponse(await roomJson(env, gameId, `/${gameId}/jury-seat`, { headers }));
+        }
+        if ((sub === 'jury-seat' || sub === 'reactions' || sub === 'votes') && method === 'POST') {
+          const visitorId = await verifyVisitor(env, request, origin);
           const input = await readBody(request);
-          return jsonResponse(await roomJson(env, gameId, `/${gameId}/votes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ visitorId: sha256(token), winner: input.winner, clientActionId: input.clientActionId }) }));
+          const body = sub === 'jury-seat' ? { visitorId } : sub === 'reactions'
+            ? { visitorId, kind: input.kind, prop: input.prop, text: input.text, clientActionId: input.clientActionId }
+            : { visitorId, winner: input.winner, clientActionId: input.clientActionId };
+          return jsonResponse(await roomJson(env, gameId, `/${gameId}/${sub}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
         }
         if (['agent', 'agent/wait', 'turns', 'verdicts'].includes(sub || '')) {
           const auth = request.headers.get('authorization');
