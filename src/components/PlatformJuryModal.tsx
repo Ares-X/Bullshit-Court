@@ -35,12 +35,12 @@ export function PlatformJuryModal({ isOpen, onClose, game, localVote, seated, vo
   return <Modal isOpen={isOpen} onClose={onClose} title="真人陪审席" description={caseData.title} className="platform-jury-modal">
     <div className="platform-jury-content">
       <h3>{heading}</h3>
-      {juryOpen && <p>{seated === false ? '陪审席已锁定。旁听可查看票数。' : '每位真人陪审员限投一票。'}</p>}
+      {juryOpen && <p>{seated === false ? '入席的陪审员正在投票。' : '每人一票。'}</p>}
       <div className="platform-jury-options">{(['plaintiff', 'defendant'] as const).map(side => <button type="button" key={side} className={`platform-jury-option platform-jury-option--${side}`} onClick={() => vote(side)} disabled={!canVote} aria-pressed={localVote === side}>
         <span>支持{side === 'plaintiff' ? '原告' : '被告'}</span><strong>{side === 'plaintiff' ? caseData.plaintiffName : caseData.defendantName}</strong><span>{side === 'plaintiff' ? game.jury.plaintiffVotes : game.jury.defendantVotes} 票</span><small>{localVote === side ? '你已投给这一方' : voting ? '正在送出选票…' : canVote ? '投这一票' : (verdictPending || completed || unresolved) ? '投票已结束' : '暂不可投票'}</small>
       </button>)}</div>
       <div className="platform-jury-tally" role="status">
-        {verdictPending && <p>陪审团支持{juryWinner}，第 11 轮判词将随庭审同步公开。</p>}
+        {verdictPending && <p>{juryWinner}得票更多。</p>}
         <p>已收到 {game.jury.total} 票 · 最少需要 {game.jury.minimumVotes} 票</p>
       </div>
       {completed && <section className="platform-jury-result"><h4>{game.jury.outcome === 'plaintiff' ? '原告胜出' : game.jury.outcome === 'defendant' ? '被告胜出' : '已结案'}</h4>{ruling && <><p>{ruling.result}</p>{ruling.quote && <blockquote>{ruling.quote}</blockquote>}</>}</section>}
@@ -50,7 +50,6 @@ export function PlatformJuryModal({ isOpen, onClose, game, localVote, seated, vo
         {deadline !== undefined && <p>陪审截止时间 <time dateTime={new Date(deadline).toISOString()}>{new Date(deadline).toLocaleString('zh-CN', { hour12: false })}</time></p>}
       </div>}
       {error && <p className="platform-jury-error" role="alert">{error}</p>}
-      <p className="platform-jury-notice">✨ 法槌一响，破事退散！严肃搞笑，判决请勿用于真实诉讼。</p>
     </div>
   </Modal>;
 }

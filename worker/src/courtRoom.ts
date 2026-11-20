@@ -340,7 +340,7 @@ export class CourtRoom {
     const stored = await this.require();
     if (!stored.jurors) return fail(409, 'JURY_UNAVAILABLE', '本案无需领取陪审席。');
     if (stored.jurors.includes(visitorId)) return this.public(stored);
-    if (!stored.session.pendingTurns.length || stored.outcome !== 'pending') return fail(409, 'JURY_SEATING_CLOSED', '本案已经停止接受陪审入席。');
+    if (!stored.session.pendingTurns.length || stored.outcome !== 'pending') return fail(409, 'JURY_SEATING_CLOSED', '已经封卷，入席得等下一场。');
     const game = copy(stored);
     game.jurors = [...stored.jurors, visitorId];
     const opensCourt = !this.canRun(stored) && this.canRun(game);
@@ -363,14 +363,14 @@ export class CourtRoom {
     const key = `reactions:${visitorId}`;
     const history = await this.ctx.storage.get<ReactionHistory>(key);
     const stored = await this.require();
-    if (!stored.jurors?.includes(visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '请先领取陪审席。');
+    if (!stored.jurors?.includes(visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '先坐上陪审席。');
     const receipt = history?.receipts.find(item => item.actionId === actionId);
     if (receipt) {
       if (receipt.fingerprint !== fingerprint) fail(409, 'ACTION_CONFLICT', '同一操作编号不能提交不同内容。');
       return this.public(stored);
     }
     if (!this.canRun(stored) || !stored.session.pendingTurns.length || stored.outcome !== 'pending') {
-      return fail(409, 'REACTION_CLOSED', '只有庭审开庭后、封卷前可以发送陪审互动。');
+      return fail(409, 'REACTION_CLOSED', '开庭后才能扔，封卷就收手。');
     }
     const now = this.now();
     if (history && now - history.lastAt < REACTION_COOLDOWN_MS) return fail(429, 'REACTION_RATE_LIMIT', '请稍等片刻再发送。');
@@ -391,7 +391,7 @@ export class CourtRoom {
     if (action.existing) return this.public(stored);
     if (game.votes[visitorId]) fail(409, 'ALREADY_VOTED', '这个浏览器已在本案投过票。');
     if (game.session.status !== 'awaiting-ruling' || game.outcome !== 'pending' || (game.deadlineAt && this.now() >= game.deadlineAt)) return fail(409, 'VOTE_CLOSED', '本案当前不接受陪审票。');
-    if (game.jurors && !game.jurors.includes(visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '请先领取本案陪审席。');
+    if (game.jurors && !game.jurors.includes(visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '这一轮由已入席的陪审员投票。');
     game.votes[visitorId] = input.winner; this.change(game); this.settle(game);
     game.actions[action.key] = { fingerprint: action.fingerprint, result: { voted: true } }; await this.save(game); return this.public(game);
   }

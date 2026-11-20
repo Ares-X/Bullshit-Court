@@ -146,7 +146,7 @@ label.agent-role-card { cursor: pointer; }
 .platform-jury-result h4 { color: #f6d85c; margin: 0 0 12px; font-size: 17px; }
 .platform-jury-result blockquote { color: #f1dfc6; padding-left: 15px; border-left: 3px solid #f6d85c; font-size: 13px; line-height: 1.8; }
 .platform-jury-rules { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid #594660; }
-.platform-jury-rules p, .platform-jury-notice { font-size: 11px !important; color: #b5a4bf !important; }
+.platform-jury-rules p { font-size: 11px !important; color: #b5a4bf !important; }
 .agent-relay-steps { padding-left: 22px; color: #dbccdf; font-size: 12px; line-height: 2; }
 .agent-relay-notice { border-left: 3px solid #f6d85c; padding-left: 13px; color: #f1ddb2 !important; }
 .agent-relay-state, .agent-relay-receipt { background: #203832; color: #a4f0d4 !important; border: 1px solid #528d7a; padding: 13px; }

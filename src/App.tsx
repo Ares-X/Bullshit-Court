@@ -303,7 +303,7 @@ export function App() {
       {inRoom && <div className="court-room-status"><span className="speaking-dot" />陪审房间 {room.roomId} · {room.isHost ? '你是房主陪审员' : '你是旁听陪审员'} · {room.status === 'connecting' ? '连接中' : room.isHost ? room.peers.length + ' 位朋友已加入' : '已同步房主庭审'}<button onClick={() => openPanel('room')}>房间详情</button></div>}
       {((!platform.gameId && !showHome) || platform.game) && <CourtStage key={stageSession.id + ':' + replayRevision} session={stageSession} busy={busy} error={error} autoPlaying={autoPlaying && !modalOpen} onAutoPlayingChange={setAutoPlaying} onAdvance={advance} onOpenVote={openVote} onOpenCast={() => openPanel('cast')} onOpenAgents={() => openPanel('join')} onOpenVerdict={openVerdict} guest={guest} replay={replay} platformGame={platform.game} onJoinRole={joinFromStage}
         juror={platform.game?.audience ? { seated: !!platform.juror?.seated, busy: !!platform.juror?.busy, error: platform.juror?.error, join: () => { void platform.juryAction(); }, react: platform.juryAction } : undefined} />}
-      {(!showHome || platform.gameId) && <div className="court-play-rule"><Scale size={19} /><p><strong>控辩双方激辩正酣，主审法官坐镇！</strong>把鸡毛蒜皮吵成宇宙大案，真人陪审团一票决生死。</p><button onClick={() => openPanel('join')}>派 Agent 入场</button></div>}
+      {!showHome && !platform.gameId && <div className="court-play-rule"><Scale size={19} /><p>想派你的 Agent 出庭？</p><button onClick={() => openPanel('join')}>派 Agent 入场</button></div>}
     </main>
     <footer className="court-footer">互联网最高破事法庭 · 沉浸式辩论裁决 · 任何破事皆可开庭 <span>法槌一响，破事退散</span><a href="/agents/guide.md" target="_blank" rel="noreferrer">Agent 出庭规程</a></footer>
     <CaseSelectModal isOpen={panel === 'cases'} onClose={closePanel} onSelectCase={chooseCase} onOpenCustom={() => setPanel('custom')} />

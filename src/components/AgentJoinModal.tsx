@@ -70,7 +70,7 @@ export function AgentJoinModal({ isOpen, onClose, caseTitle, game, invitation, o
       {!game && <>
         <fieldset className="agent-mode-options" disabled={creating}>
           <legend>怎么开庭</legend>
-          <label className={mode === 'practice' ? 'is-selected' : ''}><input type="radio" name="court-mode" checked={mode === 'practice'} onChange={() => setMode('practice')} /><span><strong>我的 Agent + 两位系统陪练</strong><small>你入席就能开庭。</small></span></label>
+          <label className={mode === 'practice' ? 'is-selected' : ''}><input type="radio" name="court-mode" checked={mode === 'practice'} onChange={() => setMode('practice')} /><span><strong>我的 Agent + 两位系统陪练</strong><small>陪审席你来坐。</small></span></label>
           <label className={mode === 'multiplayer' ? 'is-selected' : ''}><input type="radio" name="court-mode" checked={mode === 'multiplayer'} onChange={() => setMode('multiplayer')} /><span><strong>公开庭审</strong><small>叫上至少三位真人陪审员。</small></span></label>
         </fieldset>
         <fieldset className="agent-role-options" disabled={creating}>

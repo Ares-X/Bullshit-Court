@@ -198,10 +198,8 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
   const balance = getCourtBalance({ ...session, turns: session.turns.slice(0, displayedIndex + 1) });
   const danmaku = activeReactions.filter(reaction => reaction.kind === 'message');
   const seatingHint = publicStatus === 'waiting-jurors'
-    ? audience && `还差 ${Math.max(0, audience.required - audience.seated)} 位陪审员开庭`
-    : seatingOpen
-      ? juror?.seated ? '可发实时弹幕、玩道具，封卷后投一票。' : '封卷前入席，可发实时弹幕、玩道具并参与投票。'
-      : '陪审席已锁定。';
+    ? audience && `还差 ${Math.max(0, audience.required - audience.seated)} 位就开庭。`
+    : publicStatus === 'running' && !juror?.seated ? '想投票？趁封卷前坐下。' : undefined;
 
   return (
     <section className="court-stage" aria-label="互联网法庭庭审现场">
@@ -219,11 +217,11 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
           <Armchair size={25} aria-hidden="true" />
           <div>
             <h2>真人陪审席</h2>
-            <p>{seatingHint}</p>
+            {seatingHint && <p>{seatingHint}</p>}
           </div>
         </div>
         <div className="court-juror-bar__status" role="status">
-          <span>{audience.seated} 人入席{seatingOpen && publicStatus !== 'running' ? ` · 开庭需 ${audience.required} 人` : ''}</span>
+          <span>{audience.seated} 人入席{publicStatus === 'waiting-agents' ? ` · 开庭需 ${audience.required} 人` : ''}</span>
           {juror?.seated && <strong><Check size={15} aria-hidden="true" />你已入席</strong>}
         </div>
         {seatingOpen && juror && !juror.seated && <button type="button" className="court-button court-button--primary" onClick={juror.join} disabled={juror.busy}>{juror.busy ? '正在入席…' : '坐上陪审席'}</button>}
@@ -272,15 +270,14 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
           })}
         </div>
         <div className="court-dialogue" data-speaker={turn?.speaker || 'judge'}>
-          <div className="court-dialogue__heading"><span>{turn ? ROLE_LABELS[turn.speaker] + ' · ' + turn.speakerName : '三席待开庭'}</span><small>{reviewing || replay ? '庭审回看' : busy ? '下一位准备发言' : turn ? PHASE_LABELS[activePhase] : '等你入席'}</small></div>
+          {turn && <div className="court-dialogue__heading"><span>{ROLE_LABELS[turn.speaker]} · {turn.speakerName}</span><small>{reviewing || replay ? '庭审回看' : busy ? '下一位准备发言' : PHASE_LABELS[activePhase]}</small></div>}
           {turn ? <button className="court-dialogue__text" onClick={() => finishTyping.current()} title="显示完整发言"><span aria-hidden="true">{displayedText}{!typingDone && <i className="type-cursor" />}</span><span className="sr-only">{turn.text}</span></button>
-            : <div className="court-dialogue__welcome"><h2>{serverDriven ? '席位已经摆好，等你的 Agent 登台开辩。' : '让 Agent 吵个痛快，真人陪审团一票定胜负！'}</h2><p>{serverDriven ? '把短邀请发给你的 Agent，它自己读规则、按轮次出庭辩论；真人陪审团掌握最终裁决权。' : '原告当庭诉苦，被告绝地反驳，法官步步追问。谁在理，全看真人陪审团！'}</p><p className="court-source-note">{serverDriven ? '庭审云端实时同步，随进随出不丢记录。' : session.mode === 'rehearsal' ? '当前为单机即席排练。点击席位按钮，可派自己的 Agent 出庭。' : '原告、被告与法官各自连入模型，按共同案卷实时交锋。'}</p></div>}
+            : <div className="court-dialogue__welcome"><h2>{serverDriven ? (publicStatus === 'running' ? '等法官开口。' : '还没开庭。') : '案子摆好了，敲槌开庭。'}</h2></div>}
           {evidence.length > 0 && <div className="court-presented-evidence"><BookOpen size={15} /><span>本轮证物：</span>{evidence.map(item => item && <button key={item.id} onClick={() => setShowEvidence(true)}>{item.name}</button>)}</div>}
-          {turn && turn.responseTo.length > 0 && <p className="court-response-note">本轮回应了 {turn.responseTo.length} 条此前陈述或材料</p>}
         </div>
         {(showLocalProps || (audience && publicStatus === 'running')) && <div className="court-juror-tools" aria-label="陪审互动">
           <div className="court-juror-tools__props">
-            <p>{!canReact ? '入席后可使用道具和发送弹幕' : reactionTarget ? `道具送往${ROLE_LABELS[reactionTarget]}席` : '等待第一位发言者'}</p>
+            <p>{!canReact ? '入席就能扔。' : reactionTarget && `瞄准${ROLE_LABELS[reactionTarget]}席`}</p>
             <div className="court-juror-tools__buttons">
               {PROP_NAMES.map(prop => <button type="button" key={prop} className={'court-prop-btn court-prop-btn--' + prop} onClick={() => useProp(prop)} disabled={!canReact || juror?.busy || !reactionTarget}>
                 <span aria-hidden="true">{PROPS[prop].icon}</span>{PROPS[prop].label}
@@ -315,8 +312,8 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
           <button className="court-button" onClick={() => setShowTranscript(!showTranscript)} aria-expanded={showTranscript}>庭审记录</button>
         </div>
       </div>
-      {juryOpen && <div className="court-jury-call"><Vote size={25} /><div><strong>双方已经吵得面红耳赤！全网陪审官，请决断！</strong><p>{canVote ? '控辩双方均已亮出底牌，请为你支持的一方投票。' : '已入席的陪审员正在投票，旁听可查看票数。'}</p></div><button className={canVote ? 'court-button court-button--primary' : 'court-button'} onClick={onOpenVote}>{canVote ? '进入陪审投票' : '查看陪审投票'}<ArrowRight size={16} /></button></div>}
-      {verdictPending && <div className="court-jury-call" role="status"><Gavel size={24} /><div><strong>等待法官当庭宣判</strong><p>陪审结果已锁定，{juryWinner === 'plaintiff' ? '原告' : '被告'}获得多数票。第 11 轮判词将在此公开。</p></div><button className="court-button" onClick={onOpenVote}>查看陪审结果</button></div>}
+      {juryOpen && <div className="court-jury-call"><Vote size={25} /><strong>封卷。轮到陪审团了。</strong><button className={canVote ? 'court-button court-button--primary' : 'court-button'} onClick={onOpenVote}>{canVote ? '去投票' : '看票数'}<ArrowRight size={16} /></button></div>}
+      {verdictPending && <div className="court-jury-call" role="status"><Gavel size={24} /><div><strong>等法官宣判</strong><p>{juryWinner === 'plaintiff' ? '原告' : '被告'}得票更多。</p></div><button className="court-button" onClick={onOpenVote}>看票数</button></div>}
       {!serverDriven && session.juryVote && session.status !== 'completed' && <div className="court-jury-call"><Check size={22} /><p>陪审意志已送达：力挺{ROLE_LABELS[session.juryVote]}！法官即将落槌宣判！</p>{!autoPlaying && !guest && !serverDriven && <button className="court-button court-button--primary" onClick={onAdvance} disabled={busy}><Gavel size={16} />听法官宣判</button>}</div>}
       {session.status === 'completed' && <div className="court-jury-call"><Gavel size={24} /><div><strong>本案已宣判</strong><p>{session.ruling?.result}</p></div><button className="court-button court-button--primary" onClick={onOpenVerdict}>查阅判决书</button><button className="court-button" onClick={() => { setViewIndex(0); onAutoPlayingChange(true); }}><RotateCcw size={15} />回看庭审</button></div>}
       {showTranscript && <ol className="court-transcript" aria-label="已发生的庭审记录">{session.turns.map((item, index) => <li key={item.id}><button onClick={() => { onAutoPlayingChange(false); setViewIndex(index); }}><span>{index + 1} · {ROLE_LABELS[item.speaker]}</span><p>{item.text}</p></button></li>)}</ol>}
