@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CourtRole } from '../types';
-import type { CreateGameInput, GameCard, GameInvitation, PublicGame, JuryWinner } from '../types/platform';
-import { newActionId, platformClient, publicGamePath } from '../utils/platformClient';
+import type { CreateGameInput, GameCard, GameInvitation, PublicGame, JuryReactionInput, JuryWinner } from '../types/platform';
+import { newActionId, platformClient, PlatformRequestError, publicGamePath } from '../utils/platformClient';
 
 const routeId = () => /^\/games\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname)?.[1];
 type LocalInvitations = Partial<Record<CourtRole, GameInvitation>>;
@@ -67,6 +67,9 @@ export function useCourtPlatform() {
   const [voting, setVoting] = useState(false);
   const [voteError, setVoteError] = useState<string>();
   const [localVote, setLocalVote] = useState<JuryWinner>();
+  const [juror, setJuror] = useState<{ id: string; seated: boolean; busy?: boolean; error?: string }>();
+  const juryRequest = useRef<AbortController>();
+  const pendingReaction = useRef<{ id: string; content: string; actionId: string }>();
   const owners = useRef(new Map<string, string>());
   const requestRef = useRef<AbortController>();
   const listRequest = useRef<AbortController>();
@@ -86,6 +89,17 @@ export function useCourtPlatform() {
     setGameId(id); setError(undefined);
     if (window.location.pathname !== publicGamePath(id)) window.history.pushState(null, '', publicGamePath(id));
   }, [savedInvitations]);
+  const hasAudience = !!game?.audience;
+  useEffect(() => {
+    if (!gameId || !hasAudience) return;
+    const controller = new AbortController();
+    void platformClient.jurySeat(gameId, controller.signal).then(({ seated }) => {
+      if (!controller.signal.aborted && watchedId.current === gameId) {
+        setJuror(previous => previous?.id === gameId ? { ...previous, seated: previous.seated || seated } : { id: gameId, seated });
+      }
+    }).catch(() => { /* The next seat action checks membership on the server. */ });
+    return () => { controller.abort(); juryRequest.current?.abort(); juryRequest.current = undefined; };
+  }, [gameId, hasAudience]);
   const leave = useCallback(() => {
     watchedId.current = undefined;
     requestRef.current?.abort(); setGameId(undefined); gameRef.current = undefined; setGame(undefined);
@@ -200,5 +214,43 @@ export function useCourtPlatform() {
     } catch (cause) { if (!controller.signal.aborted && !disposed.current && watchedId.current === id) setVoteError(message(cause)); return false; }
     finally { if (!disposed.current) setVoting(false); }
   }, [apply, voting, localVote]);
-  return { gameId, game, gameRef, applyGame: apply, connection, games, listLoading, listError, refreshList, watch, leave, error, busy, invitation, ownInvitations, create, invite, localVote, voting, voteError, vote };
+
+  const juryAction = useCallback(async (reaction?: JuryReactionInput) => {
+    const id = gameRef.current?.id;
+    if (!id || !gameRef.current?.audience || juryRequest.current) return false;
+    const controller = new AbortController();
+    juryRequest.current = controller;
+    const update = (value: { seated?: boolean; busy?: boolean; error?: string }) => {
+      if (!controller.signal.aborted && !disposed.current && watchedId.current === id) {
+        setJuror(previous => ({ id, seated: previous?.id === id && previous.seated, ...value }));
+      }
+    };
+    update({ busy: true });
+    try {
+      const { csrfToken } = await platformClient.visitor(controller.signal);
+      let snapshot: PublicGame;
+      if (reaction) {
+        const content = JSON.stringify(reaction);
+        if (pendingReaction.current?.id !== id || pendingReaction.current.content !== content) {
+          pendingReaction.current = { id, content, actionId: newActionId() };
+        }
+        snapshot = await platformClient.react(id, reaction, csrfToken, pendingReaction.current.actionId, controller.signal);
+        pendingReaction.current = undefined;
+      } else {
+        snapshot = await platformClient.joinJury(id, csrfToken, controller.signal);
+      }
+      if (controller.signal.aborted || disposed.current || watchedId.current !== id) return false;
+      apply(snapshot);
+      update({ seated: true });
+      return true;
+    } catch (cause) {
+      if (cause instanceof PlatformRequestError && cause.status < 500) pendingReaction.current = undefined;
+      update({ error: message(cause) });
+      return false;
+    } finally {
+      if (juryRequest.current === controller) juryRequest.current = undefined;
+    }
+  }, [apply]);
+  return { gameId, game, gameRef, applyGame: apply, connection, games, listLoading, listError, refreshList, watch, leave, error, busy, invitation, ownInvitations, create, invite, localVote, voting, voteError, vote,
+    juror: juror?.id === gameId ? juror : undefined, juryAction };
 }

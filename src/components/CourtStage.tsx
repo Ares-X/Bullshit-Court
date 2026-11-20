@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Check, Gavel, LoaderCircle, Pause, Play, RotateCcw, Scale, Volume2, VolumeX, Vote } from 'lucide-react';
-import type { CourtRole, CourtSession, CourtTurn } from '../types';
-import type { PublicGame } from '../types/platform';
-import { getCourtRoleProfile, getNextCourtRole } from '../utils/courtRuntime';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Armchair, ArrowLeft, ArrowRight, BookOpen, Check, Gavel, LoaderCircle, Pause, Play, RotateCcw, Scale, Volume2, VolumeX, Vote } from 'lucide-react';
+import type { CourtRole, CourtSession, CourtTurn, ShoutType } from '../types';
+import type { JuryProp, JuryReaction, JuryReactionInput, PublicGame } from '../types/platform';
+import { getCourtBalance, getCourtRoleProfile, getNextCourtRole } from '../utils/courtRuntime';
 import { getCourtCast, getCourtExpression } from '../data/courtCasts';
 import { speech } from '../utils/speech';
 import { sounds } from '../utils/sound';
@@ -15,16 +15,37 @@ interface CourtStageProps {
   onOpenVote: () => void; onOpenCast: () => void; onOpenAgents: () => void;
   onOpenVerdict: () => void; guest?: boolean; replay?: boolean;
   platformGame?: PublicGame; onJoinRole?: (role: CourtRole) => void;
+  juror?: { seated: boolean; busy: boolean; error?: string; join: () => void; react: (reaction: JuryReactionInput) => Promise<boolean> };
 }
 const PHASE_LABELS = { opening: '开庭', statements: '双方陈述', inquiry: '法官追问', evidence: '当庭举证', deliberation: '陪审表决', verdict: '法官宣判' };
 const ROLE_LABELS: Record<CourtRole, string> = { plaintiff: '原告', judge: '法官', defendant: '被告' };
 const ORDER: CourtRole[] = ['plaintiff', 'judge', 'defendant'];
+const PROPS: Record<JuryProp, { icon: string; label: string; reaction: string; sound: () => void }> = {
+  tomato: { icon: '🍅', label: '扔番茄', reaction: '番茄糊脸！', sound: () => sounds.playDeskSlam() },
+  flipflop: { icon: '🩴', label: '甩拖鞋', reaction: '飞来一只拖鞋！', sound: () => sounds.playFlipFlop() },
+  egg: { icon: '🥚', label: '扔臭蛋', reaction: '臭蛋开花！', sound: () => sounds.playDeskSlam() },
+  popcorn: { icon: '🍿', label: '嚼爆米花', reaction: '前排吃瓜！', sound: () => sounds.playPopcorn() },
+  flower: { icon: '💐', label: '献鲜花', reaction: '收到鲜花！', sound: () => sounds.playEvidence() },
+};
+const PROP_NAMES = Object.keys(PROPS) as JuryProp[];
+const SHOUTS: Record<ShoutType, { label: string; sound: () => void }> = {
+  OBJECTION: { label: '异议！', sound: () => sounds.playDeskSlam() },
+  HOLD_IT: { label: '等等！', sound: () => sounds.playDeskSlam() },
+  TAKE_THAT: { label: '看招！', sound: () => sounds.playTakeThat() },
+  ORDER: { label: '全体肃静！', sound: () => sounds.playGavel() },
+};
+const DANMAKU_LIMIT = 60;
 
-export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, autoPlaying, onAutoPlayingChange, onAdvance, onOpenVote, onOpenCast, onOpenAgents, onOpenVerdict, guest = false, replay = false, platformGame, onJoinRole }) => {
+export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, autoPlaying, onAutoPlayingChange, onAdvance, onOpenVote, onOpenCast, onOpenAgents, onOpenVerdict, guest = false, replay = false, platformGame, onJoinRole, juror }) => {
   const serverDriven = !!platformGame;
   const seats = platformGame?.seats;
   const publicStatus = platformGame?.status;
   const juryWinner = platformGame?.jury.outcome;
+  const audience = platformGame?.audience;
+  const canVote = !audience || !!juror?.seated;
+  const seatingOpen = publicStatus === 'waiting-agents' || publicStatus === 'waiting-jurors' || publicStatus === 'running';
+  const showLocalProps = !serverDriven && !guest && !replay && session.status === 'active' && session.turns.length > 0;
+  const canReact = showLocalProps || (publicStatus === 'running' && !!juror?.seated);
   const juryOpen = platformGame ? publicStatus === 'waiting-jury' && juryWinner === 'pending' : session.status === 'awaiting-ruling';
   const verdictPending = publicStatus === 'waiting-verdict' || (publicStatus === 'waiting-jury' && (juryWinner === 'plaintiff' || juryWinner === 'defendant'));
   const [viewIndex, setViewIndex] = useState<number | null>(replay || serverDriven ? 0 : null);
@@ -35,6 +56,12 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
   const [showEvidence, setShowEvidence] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [draft, setDraft] = useState('');
+  const [activeReactions, setActiveReactions] = useState<JuryReaction[]>([]);
+  const [activeShout, setActiveShout] = useState<string>();
+  const lastReactionId = useRef<number>();
+  const localReactionId = useRef(0);
+  const reactionTimers = useRef(new Map<number, number>());
   const finishTyping = useRef<() => void>(() => {});
   const previousPublicStatus = useRef(publicStatus);
   const lastIndex = session.turns.length - 1;
@@ -45,6 +72,52 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
   const nextRole = getNextCourtRole(session);
   const text = turn?.text || '';
   const typingDone = displayedText === text;
+  const reactionTarget = platformGame
+    ? session.turns[lastIndex]?.speaker || 'judge'
+    : turn?.speaker;
+  const messageLength = [...draft.trim()].length;
+
+  const displayReaction = useCallback((reaction: JuryReaction) => {
+    if (reaction.kind === 'prop') PROPS[reaction.prop].sound();
+    setActiveReactions(previous => [...previous, reaction]);
+    const timers = reactionTimers.current;
+    const timeout = window.setTimeout(() => {
+      timers.delete(reaction.id);
+      setActiveReactions(previous => previous.filter(item => item.id !== reaction.id));
+    }, reaction.kind === 'prop' ? 1900 : 8000);
+    timers.set(reaction.id, timeout);
+  }, []);
+
+  useEffect(() => {
+    const timers = reactionTimers.current;
+    return () => {
+      timers.forEach(timer => window.clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+  useEffect(() => {
+    if (!audience) return;
+    const previous = lastReactionId.current;
+    lastReactionId.current = audience.reactions.reduce((latest, reaction) => Math.max(latest, reaction.id), previous ?? 0);
+    if (previous === undefined) return;
+    for (const reaction of audience.reactions) {
+      if (reaction.id > previous) displayReaction(reaction);
+    }
+  }, [audience, displayReaction]);
+
+  const useProp = (prop: JuryProp) => {
+    if (!canReact || juror?.busy || !reactionTarget) return;
+    if (juror) void juror.react({ kind: 'prop', prop });
+    else displayReaction({ id: --localReactionId.current, kind: 'prop', prop, target: reactionTarget });
+  };
+
+  const sendDanmaku = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!juror || !canReact || juror.busy || messageLength === 0 || messageLength > DANMAKU_LIMIT) return;
+    if (await juror.react({ kind: 'message', text: draft.trim() })) {
+      setDraft(current => current === draft ? '' : current);
+    }
+  };
 
   useEffect(() => { setViewIndex(replay || serverDriven ? 0 : null); }, [session.id, replay, serverDriven]);
   useEffect(() => {
@@ -81,9 +154,15 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
   }, [turn?.id, voiceEnabled, cast.id]);
   useEffect(() => {
     if (!turn || reviewing || replay) return;
-    if (turn.speaker === 'judge') sounds.playGavel();
+    if (turn.shout) {
+      setActiveShout(turn.id);
+      SHOUTS[turn.shout].sound();
+    } else if (turn.speaker === 'judge') sounds.playGavel();
     else if (turn.emotion === 'angry' || turn.emotion === 'shocked') sounds.playDeskSlam();
     if (turn.evidenceIds.length) sounds.playEvidence();
+    if (!turn.shout) return;
+    const timer = window.setTimeout(() => setActiveShout(undefined), 1200);
+    return () => window.clearTimeout(timer);
   }, [turn?.id]);
   useEffect(() => {
     if (!autoPlaying || busy || error || !typingDone || !voiceDone) return;
@@ -96,14 +175,14 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
       const timer = window.setTimeout(() => { onAutoPlayingChange(false); onOpenVerdict(); }, Math.max(1800, text.length * 30) / speed);
       return () => window.clearTimeout(timer);
     }
-    if (juryOpen) {
+    if (juryOpen && canVote) {
       const timer = window.setTimeout(() => { onAutoPlayingChange(false); onOpenVote(); }, Math.max(1800, text.length * 30) / speed);
       return () => window.clearTimeout(timer);
     }
     if (guest || serverDriven) return;
     const timer = window.setTimeout(onAdvance, text ? Math.max(1700, text.length * 44) / speed : 220);
     return () => window.clearTimeout(timer);
-  }, [autoPlaying, busy, error, typingDone, voiceDone, reviewing, displayedIndex, text, speed, replay, session.status, juryOpen, guest, serverDriven, onAdvance, onAutoPlayingChange, onOpenVote, onOpenVerdict]);
+  }, [autoPlaying, busy, error, typingDone, voiceDone, reviewing, displayedIndex, text, speed, replay, session.status, juryOpen, canVote, guest, serverDriven, onAdvance, onAutoPlayingChange, onOpenVote, onOpenVerdict]);
 
   const showPrevious = () => { onAutoPlayingChange(false); setViewIndex(Math.max(0, displayedIndex - 1)); };
   const showNext = () => {
@@ -116,6 +195,13 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
   };
   const activePhase = !reviewing && verdictPending ? 'verdict' : !reviewing && juryOpen ? 'deliberation' : turn?.phase || session.phase;
   const evidence = turn?.evidenceIds.map(id => session.evidences.find(item => item.id === id)).filter(Boolean) || [];
+  const balance = getCourtBalance({ ...session, turns: session.turns.slice(0, displayedIndex + 1) });
+  const danmaku = activeReactions.filter(reaction => reaction.kind === 'message');
+  const seatingHint = publicStatus === 'waiting-jurors'
+    ? audience && `还差 ${Math.max(0, audience.required - audience.seated)} 位陪审员开庭`
+    : seatingOpen
+      ? juror?.seated ? '可发实时弹幕、玩道具，封卷后投一票。' : '封卷前入席，可发实时弹幕、玩道具并参与投票。'
+      : '陪审席已锁定。';
 
   return (
     <section className="court-stage" aria-label="互联网法庭庭审现场">
@@ -128,15 +214,56 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
       <nav className="court-phases" aria-label="庭审进程">
         {Object.entries(PHASE_LABELS).map(([phase, label], index) => <span key={phase} className={activePhase === phase ? 'is-current' : ''} aria-current={activePhase === phase ? 'step' : undefined}><i>{index + 1}</i>{label}</span>)}
       </nav>
+      {audience && <section className="court-juror-bar" aria-label="真人陪审席">
+        <div className="court-juror-bar__info">
+          <Armchair size={25} aria-hidden="true" />
+          <div>
+            <h2>真人陪审席</h2>
+            <p>{seatingHint}</p>
+          </div>
+        </div>
+        <div className="court-juror-bar__status" role="status">
+          <span>{audience.seated} 人入席{seatingOpen && publicStatus !== 'running' ? ` · 开庭需 ${audience.required} 人` : ''}</span>
+          {juror?.seated && <strong><Check size={15} aria-hidden="true" />你已入席</strong>}
+        </div>
+        {seatingOpen && juror && !juror.seated && <button type="button" className="court-button court-button--primary" onClick={juror.join} disabled={juror.busy}>{juror.busy ? '正在入席…' : '坐上陪审席'}</button>}
+        {juror?.error && (!juror.seated || publicStatus !== 'running') && <p className="court-juror-bar__error" role="alert">{juror.error}</p>}
+      </section>}
       <div className="court-theatre">
-        <div className="court-theatre__sign"><Scale size={20} /><span>小事也要说个明白</span><Scale size={20} /></div>
+        <div className="court-scale-bar" role="group" aria-label="辩论气势">
+          <span className="court-scale-label court-scale-label--plaintiff">原告</span>
+          <div className="court-scale-center">
+            <div className="court-scale-beam" aria-hidden="true" style={{ transform: `rotate(${balance * -0.14}deg)` }}>
+              <div className="court-scale-pan court-scale-pan--left" />
+              <Scale size={22} />
+              <div className="court-scale-pan court-scale-pan--right" />
+            </div>
+            <p>{balance > 15 ? '原告气势占优' : balance < -15 ? '被告气势占优' : '双方旗鼓相当'}</p>
+          </div>
+          <span className="court-scale-label court-scale-label--defendant">被告</span>
+        </div>
+        {turn?.shout && activeShout === turn.id && <div className={'court-shout-banner court-shout-banner--' + turn.shout.toLowerCase()}>
+          <div className="court-shout-banner__inner">
+            <span>{ROLE_LABELS[turn.speaker]}拍案</span>
+            <strong>{SHOUTS[turn.shout].label}</strong>
+          </div>
+        </div>}
+        {audience && <div className="court-danmaku-lane" role="log" aria-label="实时弹幕">
+          {danmaku.map(item => <div key={item.id} className="court-danmaku-item" style={{ top: `${6 + (item.id % 3) * 27}px` }}>{item.text}</div>)}
+        </div>}
         <div className="court-actors">
           {ORDER.map(role => {
             const profile = getCourtRoleProfile(session.caseData, role);
             const active = turn?.speaker === role;
             const ownPrevious = session.turns.slice(0, displayedIndex + 1).filter(item => item.speaker === role).slice(-1)[0];
             const emotion = active ? turn?.emotion : turn?.emotion === 'angry' && role !== 'judge' ? 'shocked' : ownPrevious?.emotion;
+            const reaction = activeReactions.filter(item => item.kind === 'prop' && item.target === role).slice(-1)[0];
+            const prop = reaction?.kind === 'prop' ? reaction.prop : undefined;
             return <div className={'court-actor court-actor--' + role + (active ? ' is-speaking' : '')} key={role}>
+              {prop && reaction && <div key={reaction.id} className={'court-actor-reaction court-actor-reaction--' + prop}>
+                <span className="court-stun-badge" role="status">{PROPS[prop].reaction}</span>
+                <span className="court-splat-overlay" aria-hidden="true">{PROPS[prop].icon}</span>
+              </div>}
               <div className="court-actor__cue">{busy && !reviewing && nextRole === role ? <><LoaderCircle size={13} className="is-spinning" />正在斟酌</> : active ? <><span className="speaking-dot" />{ROLE_LABELS[role]}发言</> : role === 'judge' ? '主持审理' : '本人出庭'}</div>
               <CharacterPortrait role={role} cast={cast} expression={getCourtExpression(emotion, active && !typingDone)} label={profile.name} />
               <div className="court-actor__bench"><span>{ROLE_LABELS[role]}席</span><strong>{profile.name}</strong>{seats?.[role] && <small>{seats[role].source === 'practice' ? '系统陪练' : seats[role].source === 'builtin' ? '内置主审' : seats[role].status === 'claimed' ? seats[role].agentName || '玩家 Agent' : '等待玩家 Agent'}</small>}</div>
@@ -145,12 +272,29 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
           })}
         </div>
         <div className="court-dialogue" data-speaker={turn?.speaker || 'judge'}>
-          <div className="court-dialogue__heading"><span>{turn ? ROLE_LABELS[turn.speaker] + ' · ' + turn.speakerName : '三位已经就位'}</span><small>{reviewing || replay ? '庭审回看' : busy ? '下一位准备发言' : turn ? PHASE_LABELS[activePhase] : '等你入席'}</small></div>
+          <div className="court-dialogue__heading"><span>{turn ? ROLE_LABELS[turn.speaker] + ' · ' + turn.speakerName : '三席待开庭'}</span><small>{reviewing || replay ? '庭审回看' : busy ? '下一位准备发言' : turn ? PHASE_LABELS[activePhase] : '等你入席'}</small></div>
           {turn ? <button className="court-dialogue__text" onClick={() => finishTyping.current()} title="显示完整发言"><span aria-hidden="true">{displayedText}{!typingDone && <i className="type-cursor" />}</span><span className="sr-only">{turn.text}</span></button>
-            : <div className="court-dialogue__welcome"><h2>{serverDriven ? '席位已经摆好，等你的 Agent 登台开辩。' : '让 Agent 吵个痛快，真人陪审团一票定胜负！'}</h2><p>{serverDriven ? '把短邀请发给你的 Agent，它自己读规则、按轮次出庭辩论；真人陪审团掌握最终裁决权。' : '原告当庭诉苦，被告绝地反驳，法官步步追问。谁在理，全看真人陪审团！'}</p><p className="court-source-note">{serverDriven ? '庭审云端实时同步，随进随出不丢记录。' : session.mode === 'rehearsal' ? '当前为单机即席排练。点击席位按钮，即可派出你自己的专属 Agent 入场！' : '原告、被告与法官各自连入模型，按共同案卷实时交锋。'}</p></div>}
+            : <div className="court-dialogue__welcome"><h2>{serverDriven ? '席位已经摆好，等你的 Agent 登台开辩。' : '让 Agent 吵个痛快，真人陪审团一票定胜负！'}</h2><p>{serverDriven ? '把短邀请发给你的 Agent，它自己读规则、按轮次出庭辩论；真人陪审团掌握最终裁决权。' : '原告当庭诉苦，被告绝地反驳，法官步步追问。谁在理，全看真人陪审团！'}</p><p className="court-source-note">{serverDriven ? '庭审云端实时同步，随进随出不丢记录。' : session.mode === 'rehearsal' ? '当前为单机即席排练。点击席位按钮，可派自己的 Agent 出庭。' : '原告、被告与法官各自连入模型，按共同案卷实时交锋。'}</p></div>}
           {evidence.length > 0 && <div className="court-presented-evidence"><BookOpen size={15} /><span>本轮证物：</span>{evidence.map(item => item && <button key={item.id} onClick={() => setShowEvidence(true)}>{item.name}</button>)}</div>}
           {turn && turn.responseTo.length > 0 && <p className="court-response-note">本轮回应了 {turn.responseTo.length} 条此前陈述或材料</p>}
         </div>
+        {(showLocalProps || (audience && publicStatus === 'running')) && <div className="court-juror-tools" aria-label="陪审互动">
+          <div className="court-juror-tools__props">
+            <p>{!canReact ? '入席后可使用道具和发送弹幕' : reactionTarget ? `道具送往${ROLE_LABELS[reactionTarget]}席` : '等待第一位发言者'}</p>
+            <div className="court-juror-tools__buttons">
+              {PROP_NAMES.map(prop => <button type="button" key={prop} className={'court-prop-btn court-prop-btn--' + prop} onClick={() => useProp(prop)} disabled={!canReact || juror?.busy || !reactionTarget}>
+                <span aria-hidden="true">{PROPS[prop].icon}</span>{PROPS[prop].label}
+              </button>)}
+            </div>
+          </div>
+          {audience && <form className="court-danmaku-form" onSubmit={sendDanmaku}>
+            <label htmlFor="court-danmaku-draft" className="sr-only">实时弹幕</label>
+            <input id="court-danmaku-draft" type="text" value={draft} onChange={event => setDraft(event.target.value)} disabled={!canReact} placeholder={`说两句（最多 ${DANMAKU_LIMIT} 字）`} aria-invalid={messageLength > DANMAKU_LIMIT} />
+            {messageLength > DANMAKU_LIMIT && <span className="court-danmaku-form__limit" role="status">弹幕最多 {DANMAKU_LIMIT} 字</span>}
+            <button type="submit" className="court-button" disabled={!canReact || juror?.busy || !messageLength || messageLength > DANMAKU_LIMIT}>发送弹幕</button>
+          </form>}
+          {juror?.seated && juror.error && <p className="court-juror-tools__error" role="alert">{juror.error}</p>}
+        </div>}
       </div>
       {error && <div className="court-runtime-error" role="alert"><strong>这一轮暂未完成</strong><p>{error}</p><button className="court-button" onClick={onAdvance} disabled={busy || guest}>重试这一轮</button><button className="court-button" onClick={onOpenAgents}>检查 Agent 设置</button></div>}
       {voiceUnavailable && <p className="court-inline-note" role="status">本机语音暂不可用，已保留完整字幕。</p>}
@@ -159,7 +303,7 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
           <button className="court-icon-button" onClick={showPrevious} disabled={displayedIndex <= 0} aria-label="回看上一句"><ArrowLeft size={18} /></button>
           <button className="court-button court-button--primary" disabled={busy || (serverDriven && !turn) || (guest && !reviewing) || (!!session.ruling && !reviewing)} onClick={() => { setViewIndex(serverDriven ? Math.max(0, displayedIndex) : reviewing ? displayedIndex : null); onAutoPlayingChange(!autoPlaying); }}>
             {busy ? <LoaderCircle className="is-spinning" size={17} /> : autoPlaying ? <Pause size={17} /> : <Play size={17} />}
-            {busy ? ROLE_LABELS[nextRole || 'judge'] + '组织语言中…' : autoPlaying ? '暂停' : reviewing ? '播放回看' : serverDriven ? session.turns.length ? '继续观看' : '等待辩护人就位' : session.turns.length ? '继续激辩' : '开庭！'}
+            {busy ? ROLE_LABELS[nextRole || 'judge'] + '组织语言中…' : autoPlaying ? '暂停' : reviewing ? '播放回看' : serverDriven ? session.turns.length ? '继续观看' : (publicStatus === 'waiting-jurors' ? '等待陪审员入席' : '等待开庭') : session.turns.length ? '继续激辩' : '开庭！'}
           </button>
           <button className="court-icon-button" onClick={showNext} disabled={busy || (!reviewing && (guest || serverDriven))} aria-label={reviewing ? '回看下一句' : '下一轮'}><ArrowRight size={18} /></button>
           <span className="court-turn-count">{Math.max(0, displayedIndex + 1)} / {session.turns.length} 句</span>
@@ -171,7 +315,7 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
           <button className="court-button" onClick={() => setShowTranscript(!showTranscript)} aria-expanded={showTranscript}>庭审记录</button>
         </div>
       </div>
-      {juryOpen && (!serverDriven || !reviewing) && <div className="court-jury-call"><Vote size={25} /><div><strong>双方已经吵得面红耳赤！全网陪审官，请决断！</strong><p>控辩双方均已亮出底牌，你的正义一票将直接决定最终裁决！</p></div><button className="court-button court-button--primary" onClick={onOpenVote}>进入陪审投票<ArrowRight size={16} /></button></div>}
+      {juryOpen && <div className="court-jury-call"><Vote size={25} /><div><strong>双方已经吵得面红耳赤！全网陪审官，请决断！</strong><p>{canVote ? '控辩双方均已亮出底牌，请为你支持的一方投票。' : '已入席的陪审员正在投票，旁听可查看票数。'}</p></div><button className={canVote ? 'court-button court-button--primary' : 'court-button'} onClick={onOpenVote}>{canVote ? '进入陪审投票' : '查看陪审投票'}<ArrowRight size={16} /></button></div>}
       {verdictPending && <div className="court-jury-call" role="status"><Gavel size={24} /><div><strong>等待法官当庭宣判</strong><p>陪审结果已锁定，{juryWinner === 'plaintiff' ? '原告' : '被告'}获得多数票。第 11 轮判词将在此公开。</p></div><button className="court-button" onClick={onOpenVote}>查看陪审结果</button></div>}
       {!serverDriven && session.juryVote && session.status !== 'completed' && <div className="court-jury-call"><Check size={22} /><p>陪审意志已送达：力挺{ROLE_LABELS[session.juryVote]}！法官即将落槌宣判！</p>{!autoPlaying && !guest && !serverDriven && <button className="court-button court-button--primary" onClick={onAdvance} disabled={busy}><Gavel size={16} />听法官宣判</button>}</div>}
       {session.status === 'completed' && <div className="court-jury-call"><Gavel size={24} /><div><strong>本案已宣判</strong><p>{session.ruling?.result}</p></div><button className="court-button court-button--primary" onClick={onOpenVerdict}>查阅判决书</button><button className="court-button" onClick={() => { setViewIndex(0); onAutoPlayingChange(true); }}><RotateCcw size={15} />回看庭审</button></div>}

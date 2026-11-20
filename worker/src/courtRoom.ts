@@ -2,7 +2,7 @@ import { applyExternalCourtRuling, applyExternalCourtTurn, castJuryVote, CourtRu
 import { toGameCard, gameCardSearchBlob } from '../../src/utils/gameCard';
 import { juryTotals, nextBuiltinRetry, platformCase, platformTurn, type BuiltinRetry } from '../../src/utils/platformGame';
 import type { CourtRole, CourtSession } from '../../src/types';
-import type { AgentState, CreateGameInput, CreateGameResult, GameInvitation, InvitationContext, JuryWinner, PrepareVerdictsInput, PublicGame, PublicSeat } from '../../src/types/platform';
+import type { AgentState, CreateGameInput, CreateGameResult, GameInvitation, InvitationContext, JuryProp, JuryReaction, JuryReactionInput, JuryWinner, PrepareVerdictsInput, PublicGame, PublicSeat } from '../../src/types/platform';
 import type { Env } from './env';
 import { fail, HttpError, scopedToken } from './env';
 import { ensureSchema } from './d1';
@@ -10,6 +10,11 @@ import { sha256 } from './sha256';
 import { generateBuiltinJudgeTurn } from './builtinJudge';
 
 const ROLES: CourtRole[] = ['judge', 'plaintiff', 'defendant'];
+const JURY_PROPS: readonly JuryProp[] = ['tomato', 'flipflop', 'egg', 'popcorn', 'flower'];
+const RECENT_REACTIONS = 20;
+const REACTION_COOLDOWN_MS = 1200;
+const REACTION_RECEIPTS = 16;
+const EXTERNAL_TURN_LIMIT = 180;
 const DAY = 24 * 60 * 60 * 1000;
 const copy = <T,>(x: T): T => structuredClone(x);
 const hash = (value: string) => sha256(value);
@@ -23,11 +28,14 @@ interface Seat extends PublicSeat { tokenHash?: string; ticket?: string; claim?:
 interface Prepared { plaintiff: unknown; defendant: unknown; preparedAt: number; source: 'external' | 'practice'; publishedAt?: number }
 interface InternalGame {
   id: string; mode: 'practice' | 'multiplayer'; revision: number; createdAt: number; updatedAt: number;
+  actionRevision?: number;
   session: CourtSession; seats: Record<CourtRole, Seat>; ownerHash: string; hidden?: boolean;
   votes: Record<string, JuryWinner>; deadlineAt?: number; outcome: 'pending' | JuryWinner | 'unresolved'; prepared?: Prepared;
   postJury?: true; publishedAt?: number; builtinRetry?: BuiltinRetry;
+  jurors?: string[]; reactions?: JuryReaction[];
   actions: Record<string, { fingerprint: string; result: unknown }>;
 }
+interface ReactionHistory { lastAt: number; receipts: { actionId: string; fingerprint: string }[] }
 interface Subscription { revision: number; send: (game: PublicGame) => void; close: () => void }
 interface Waiter { revision: number; resolve: (state: AgentState | PublicGame) => void; reject: (error: Error) => void; token: string | null; timer: ReturnType<typeof setTimeout>; cleanup: () => void }
 interface CreateReceipt { fingerprint: string; result: CreateGameResult }
@@ -61,19 +69,25 @@ export class CourtRoom {
     for (const r of ROLES) if (game.seats[r].tokenHash === digest) return r;
     return fail(401, 'AUTH', '席位令牌无效。');
   }
-  private canRun(game: InternalGame) { return ROLES.every(r => game.seats[r].source !== 'external' || game.seats[r].status === 'claimed'); }
+  private agentsReady(game: InternalGame) { return ROLES.every(r => game.seats[r].source !== 'external' || game.seats[r].status === 'claimed'); }
+  private juryMinimum(game: InternalGame) { return game.mode === 'practice' ? 1 : 3; }
+  private canRun(game: InternalGame) { return this.agentsReady(game) && (!game.jurors || game.jurors.length >= this.juryMinimum(game)); }
+  private actionRevision(game: InternalGame) { return game.actionRevision ?? game.revision; }
   private public(game: InternalGame): PublicGame {
     const running = this.canRun(game);
     const current = running && game.outcome !== 'unresolved' ? platformTurn(game.session, game.postJury) : undefined;
     const { plaintiff, defendant, total } = juryTotals(game.votes);
     return copy({ id: game.id, mode: game.mode, revision: game.revision, createdAt: game.createdAt, updatedAt: game.updatedAt,
-      status: game.session.status === 'completed' ? 'completed' : game.outcome === 'unresolved' ? 'unresolved' : !running ? 'waiting-agents' : current?.phase === 'verdict' ? 'waiting-verdict' : current ? 'running' : 'waiting-jury',
+      status: game.session.status === 'completed' ? 'completed' : game.outcome === 'unresolved' ? 'unresolved' : !running
+        ? this.agentsReady(game) ? 'waiting-jurors' : 'waiting-agents'
+        : current?.phase === 'verdict' ? 'waiting-verdict' : current ? 'running' : 'waiting-jury',
       session: game.session,
       seats: Object.fromEntries(ROLES.map(r => { const { role: seatRole, source, status, agentName } = game.seats[r]; return [r, { role: seatRole, source, status, ...(agentName ? {agentName} : {}) }]; })) as Record<CourtRole, PublicSeat>,
       currentRole: current?.role ?? null,
       currentTurnId: current ? `${game.session.id}-turn-${game.session.turns.length + 1}` : null,
       guidePath: '/agents/guide.md',
-      jury: { plaintiffVotes: plaintiff, defendantVotes: defendant, total, minimumVotes: game.mode === 'practice' ? 1 : 3, ...(game.deadlineAt ? {deadlineAt: game.deadlineAt} : {}), outcome: game.outcome },
+      jury: { plaintiffVotes: plaintiff, defendantVotes: defendant, total, minimumVotes: this.juryMinimum(game), ...(game.deadlineAt ? {deadlineAt: game.deadlineAt} : {}), outcome: game.outcome },
+      ...(game.jurors && { audience: { seated: game.jurors.length, required: this.juryMinimum(game), reactions: game.reactions ?? [] } }),
       verdict: game.postJury ? { flow: 'post-jury', prepared: false, ...(game.publishedAt !== undefined ? {publishedAt: game.publishedAt, source: game.seats.judge.source} : {}) }
         : { prepared: !!game.prepared, ...(game.prepared ? {preparedAt: game.prepared.preparedAt, source: game.prepared.source, ...(game.prepared.publishedAt ? {publishedAt: game.prepared.publishedAt} : {})} : {}) },
     });
@@ -84,11 +98,12 @@ export class CourtRoom {
     return fail(404, 'NOT_FOUND', '邀请不存在。');
   }
   /** Commit the mutated copy, persist it, notify streams and project the D1 card. */
-  private async save(game: InternalGame, creation?: CreateReceipt) {
+  private async save(game: InternalGame, extras?: { creation?: CreateReceipt; reaction?: { key: string; history: ReactionHistory } }) {
     const alarm = this.nextAlarm(game);
     await this.ctx.storage.transaction(async storage => {
       await storage.put('game', game);
-      if (creation) await storage.put('create', creation);
+      if (extras?.creation) await storage.put('create', extras.creation);
+      if (extras?.reaction) await storage.put(extras.reaction.key, extras.reaction.history);
       const current = await storage.getAlarm();
       if (current === alarm) return;
       if (alarm === null) await storage.deleteAlarm();
@@ -99,12 +114,16 @@ export class CourtRoom {
       subscription.revision = game.revision;
       try { subscription.send(this.public(game)); } catch { this.subscriptions.delete(subscription); subscription.close(); }
     }
-    for (const waiter of [...this.waiters]) if (game.revision > waiter.revision) {
+    for (const waiter of [...this.waiters]) if ((waiter.token ? this.actionRevision(game) : game.revision) > waiter.revision) {
       waiter.cleanup(); waiter.resolve(waiter.token ? this.state(game, waiter.token) : this.public(game));
     }
     await this.project(game);
   }
-  private change(game: InternalGame) { game.revision++; game.updatedAt = this.now(); }
+  private change(game: InternalGame, audienceOnly = false) {
+    game.actionRevision = audienceOnly ? this.actionRevision(game) : game.revision + 1;
+    game.revision++;
+    game.updatedAt = this.now();
+  }
   private seal(game: InternalGame) { if (!game.session.pendingTurns.length && !game.deadlineAt) game.deadlineAt = this.now() + DAY; }
   private pump(game: InternalGame) {
     if (!this.canRun(game) || game.outcome === 'unresolved') return;
@@ -130,7 +149,7 @@ export class CourtRoom {
   private settle(game: InternalGame) {
     if (game.session.pendingTurns.length || game.session.status === 'completed' || game.outcome === 'unresolved') return;
     const { plaintiff, defendant, total } = juryTotals(game.votes);
-    const enough = total >= (game.mode === 'practice' ? 1 : 3);
+    const enough = total >= this.juryMinimum(game);
     let next: InternalGame['outcome'] = game.outcome;
     if (next === 'pending' && enough && plaintiff !== defendant) next = plaintiff > defendant ? 'plaintiff' : 'defendant';
     if (next === 'pending' && game.deadlineAt && this.now() >= game.deadlineAt) next = 'unresolved';
@@ -173,7 +192,7 @@ export class CourtRoom {
     const finished = game.session.status === 'completed' || (game.postJury && game.outcome === 'unresolved') || (r === 'judge' ? !!game.prepared : noMoreTurns);
     const canSubmit = !finished && pub.currentRole === r;
     const prepare = !game.postJury && !finished && r === 'judge' && game.session.status === 'awaiting-ruling';
-    return { game: pub, role: r, roleFinished: finished, canSubmit, turnId: canSubmit ? pub.currentTurnId : null, expectedRevision: game.revision,
+    return { game: pub, role: r, roleFinished: finished, canSubmit, turnId: canSubmit ? pub.currentTurnId : null, expectedRevision: this.actionRevision(game),
       action: finished ? 'finished' : prepare ? 'prepare_verdicts' : canSubmit ? (pub.status === 'waiting-verdict' ? 'submit_verdict' : 'submit_turn') : 'wait', guidePath: '/agents/guide.md', rolePromptPath: `/agents/roles/${r}.md`,
       receipts: Object.entries(game.actions).filter(([key]) => key.startsWith(`${hash(rawToken)}:`)).map(([key, value]) => ({ clientActionId: key.slice(65), kind: JSON.parse(value.fingerprint).kind, ...(value.result as object) })) };
   }
@@ -182,7 +201,7 @@ export class CourtRoom {
     if (!this.env.DB) return;
     // The card only changes on transitions, not on every turn, keeping D1 writes bounded.
     const seatsSig = ROLES.map(r => `${r}:${game.seats[r].status}`).join(',');
-    const key = [game.mode, game.hidden ? 1 : 0, game.session.status, game.outcome, seatsSig, game.prepared ? (game.prepared.publishedAt ? 2 : 1) : 0].join('|');
+    const key = [game.mode, game.hidden ? 1 : 0, game.session.status, game.outcome, seatsSig, game.jurors?.length, game.prepared ? (game.prepared.publishedAt ? 2 : 1) : 0].join('|');
     if (this.projectedKey === key) return;
     const card = toGameCard(this.public(game));
     try {
@@ -246,11 +265,11 @@ export class CourtRoom {
     const ownerToken = scopedToken(gameId); const time = this.now();
     const game: InternalGame = { id: gameId, mode, revision: 1, createdAt: time, updatedAt: time, session,
       seats: Object.fromEntries(ROLES.map(x => [x, { role: x, source: mode === 'multiplayer' || x === r ? 'external' : 'practice', status: mode === 'multiplayer' || x === r ? 'open' : 'practice' }])) as Record<CourtRole, Seat>,
-      ownerHash: hash(ownerToken), votes: {}, outcome: 'pending', actions: {}, postJury: true };
+      ownerHash: hash(ownerToken), votes: {}, outcome: 'pending', actions: {}, postJury: true, jurors: [] };
     if (builtinJudgeName) game.seats.judge = { role: 'judge', source: 'builtin', status: 'builtin', agentName: builtinJudgeName };
     const invitation = this.invitation(game, r);
     const result: CreateGameResult = { game: this.public(game), ownerToken, invitation };
-    await this.save(game, { fingerprint, result });
+    await this.save(game, { creation: { fingerprint, result } });
     return result;
   }
   private async invite(id: string, input: { role: CourtRole; ownerToken?: string }): Promise<GameInvitation> {
@@ -296,8 +315,12 @@ export class CourtRoom {
     if (action.existing) return this.state(stored, rawToken);
     const state = this.state(stored, rawToken);
     if (!state.canSubmit) fail(409, 'NOT_YOUR_TURN', '当前还未轮到该席位。');
-    if (input.revision !== game.revision || input.turnId !== state.turnId) fail(409, 'STALE_TURN', '轮次或版本已变化，请读取当前状态再提交。');
+    if (input.revision !== state.expectedRevision || input.turnId !== state.turnId) fail(409, 'STALE_TURN', '轮次或版本已变化，请读取当前状态再提交。');
     if (!input.payload || typeof input.payload !== 'object' || ((input.payload as { speaker?: unknown }).speaker !== undefined && (input.payload as { speaker?: unknown }).speaker !== r)) fail(403, 'ROLE_SCOPE', '席位令牌不能冒充其他角色。');
+    const suppliedText = (input.payload as { text?: unknown }).text;
+    if (game.jurors && typeof suppliedText === 'string' && [...suppliedText.trim()].length > EXTERNAL_TURN_LIMIT) {
+      fail(400, 'TURN_TOO_LONG', `本轮台词最多 ${EXTERNAL_TURN_LIMIT} 个字符。请缩短台词后重新提交，本轮尚未入卷。`);
+    }
     this.acceptTurn(game, { ...(input.payload as object), speaker: r });
     game.actions[action.key] = { fingerprint: action.fingerprint, result: { acceptedTurnId: input.turnId } }; await this.save(game);
     return this.state(game, rawToken);
@@ -309,9 +332,57 @@ export class CourtRoom {
     if (r !== 'judge') fail(403, 'ROLE_SCOPE', '只有法官席可以准备判词。');
     if (game.postJury) fail(409, 'POST_JURY_VERDICT', '请等待陪审票决，再于第 11 轮公开宣判。');
     if (game.prepared) fail(409, 'ALREADY_PREPARED', '条件判词已经封存。');
-    if (input.revision !== undefined && input.revision !== game.revision) fail(409, 'STALE_TURN', '版本已变化，请先读取当前状态。');
+    if (input.revision !== undefined && input.revision !== this.actionRevision(game)) fail(409, 'STALE_TURN', '版本已变化，请先读取当前状态。');
     this.prepare(game, input.plaintiff, input.defendant, 'external'); this.settle(game);
     game.actions[action.key] = { fingerprint: action.fingerprint, result: { prepared: true } }; await this.save(game); return this.state(game, rawToken);
+  }
+  private async seatJury(visitorId: string): Promise<PublicGame> {
+    const stored = await this.require();
+    if (!stored.jurors) return fail(409, 'JURY_UNAVAILABLE', '本案无需领取陪审席。');
+    if (stored.jurors.includes(visitorId)) return this.public(stored);
+    if (!stored.session.pendingTurns.length || stored.outcome !== 'pending') return fail(409, 'JURY_SEATING_CLOSED', '本案已经停止接受陪审入席。');
+    const game = copy(stored);
+    game.jurors = [...stored.jurors, visitorId];
+    const opensCourt = !this.canRun(stored) && this.canRun(game);
+    this.change(game, !opensCourt);
+    if (opensCourt) this.pump(game);
+    await this.save(game);
+    return this.public(game);
+  }
+  private async react(visitorId: string, input: { kind?: unknown; prop?: unknown; text?: unknown; clientActionId?: unknown }): Promise<PublicGame> {
+    let reaction: JuryReactionInput;
+    if (input.kind === 'prop' && JURY_PROPS.includes(input.prop as JuryProp)) {
+      reaction = { kind: 'prop', prop: input.prop as JuryProp };
+    } else if (input.kind === 'message' && typeof input.text === 'string' && input.text.trim() && [...input.text.trim()].length <= 60) {
+      reaction = { kind: 'message', text: input.text.trim() };
+    } else {
+      return fail(400, 'INVALID_REACTION', '请选择有效道具，或发送 1 到 60 个字符的留言。');
+    }
+    const actionId = text(input.clientActionId, '操作编号');
+    const fingerprint = hash(JSON.stringify(reaction));
+    const key = `reactions:${visitorId}`;
+    const history = await this.ctx.storage.get<ReactionHistory>(key);
+    const stored = await this.require();
+    if (!stored.jurors?.includes(visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '请先领取陪审席。');
+    const receipt = history?.receipts.find(item => item.actionId === actionId);
+    if (receipt) {
+      if (receipt.fingerprint !== fingerprint) fail(409, 'ACTION_CONFLICT', '同一操作编号不能提交不同内容。');
+      return this.public(stored);
+    }
+    if (!this.canRun(stored) || !stored.session.pendingTurns.length || stored.outcome !== 'pending') {
+      return fail(409, 'REACTION_CLOSED', '只有庭审开庭后、封卷前可以发送陪审互动。');
+    }
+    const now = this.now();
+    if (history && now - history.lastAt < REACTION_COOLDOWN_MS) return fail(429, 'REACTION_RATE_LIMIT', '请稍等片刻再发送。');
+    const game = copy(stored);
+    this.change(game, true);
+    const id = game.revision;
+    const event: JuryReaction = reaction.kind === 'prop'
+      ? { ...reaction, id, target: game.session.turns.at(-1)?.speaker ?? 'judge' }
+      : { ...reaction, id };
+    game.reactions = [...(game.reactions ?? []), event].slice(-RECENT_REACTIONS);
+    await this.save(game, { reaction: { key, history: { lastAt: now, receipts: [...(history?.receipts ?? []), { actionId, fingerprint }].slice(-REACTION_RECEIPTS) } } });
+    return this.public(game);
   }
   private async vote(visitorId: string, input: { winner: JuryWinner; clientActionId: string }): Promise<PublicGame> {
     const stored = await this.require();
@@ -320,14 +391,15 @@ export class CourtRoom {
     if (action.existing) return this.public(stored);
     if (game.votes[visitorId]) fail(409, 'ALREADY_VOTED', '这个浏览器已在本案投过票。');
     if (game.session.status !== 'awaiting-ruling' || game.outcome !== 'pending' || (game.deadlineAt && this.now() >= game.deadlineAt)) return fail(409, 'VOTE_CLOSED', '本案当前不接受陪审票。');
+    if (game.jurors && !game.jurors.includes(visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '请先领取本案陪审席。');
     game.votes[visitorId] = input.winner; this.change(game); this.settle(game);
     game.actions[action.key] = { fingerprint: action.fingerprint, result: { voted: true } }; await this.save(game); return this.public(game);
   }
   private async admin(request: Request): Promise<Response> {
     if (request.headers.get('x-court-admin') !== '1') return fail(403, 'AUTH', '需要管理员通道。');
-    const stored = await this.load();
     const input = await request.json() as { op: string } | undefined;
     if (!input || typeof input.op !== 'string') return fail(400, 'INVALID_INPUT', '未知管理操作。');
+    const stored = await this.load();
     if (input.op === 'purge') {
       await this.ctx.storage.deleteAll();
       this.game = undefined; this.projectedKey = undefined;
@@ -370,6 +442,12 @@ export class CourtRoom {
       if (path === '/create' && method === 'POST') { const body = await readJson(request); return json(await this.create(body.input, body.gameId)); }
       if (gameId && path === `/${gameId}` && method === 'GET') return json(this.public(await this.require()));
       if (gameId && path === `/${gameId}/invite` && method === 'POST') return json(await this.invite(gameId, await readJson(request)));
+      if (gameId && path === `/${gameId}/jury-seat` && method === 'GET') {
+        const visitorId = request.headers.get('x-court-visitor-id');
+        return json({ seated: Boolean(visitorId && (await this.require()).jurors?.includes(visitorId)) });
+      }
+      if (gameId && path === `/${gameId}/jury-seat` && method === 'POST') { const body = await readJson(request); return json(await this.seatJury(text(body.visitorId, '访客凭证', 200))); }
+      if (gameId && path === `/${gameId}/reactions` && method === 'POST') { const body = await readJson(request); return json(await this.react(text(body.visitorId, '访客凭证', 200), body)); }
       if (gameId && path === `/${gameId}/votes` && method === 'POST') { const body = await readJson(request); return json(await this.vote(text(body.visitorId, '访客凭证', 200), body)); }
       if (gameId && path === `/${gameId}/events` && method === 'GET') return await this.events(request, url);
       if (gameId && path === `/${gameId}/wait` && method === 'GET') {

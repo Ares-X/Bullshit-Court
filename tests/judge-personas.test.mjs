@@ -10,7 +10,10 @@ const directory = await mkdtemp(join(tmpdir(), 'court-personas-'));
 let casts;
 try {
   const entry = join(directory, 'courtCasts.mjs');
-  await build({ entryPoints: [fileURLToPath(new URL('../src/data/courtCasts.ts', import.meta.url))], outfile: entry, bundle: true, format: 'esm', platform: 'node', packages: 'external', logLevel: 'silent' });
+  await build({ stdin: {
+    contents: "export * from './src/data/courtCasts'; export { platformCase } from './src/utils/platformGame';",
+    resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts',
+  }, outfile: entry, bundle: true, format: 'esm', platform: 'node', packages: 'external', logLevel: 'silent' });
   casts = await import(pathToFileURL(entry).href);
 } finally { await rm(directory, { recursive: true, force: true }); }
 
@@ -39,5 +42,27 @@ test('each configured cast has a readable fixed judge prompt', async () => {
     const prompt = await readFile(new URL(`../public/agents/judges/${cast.id}.md`, import.meta.url), 'utf8');
     assert.ok(prompt.includes(`cast:${cast.id}:judge`));
     assert.ok(prompt.includes(cast.judgeName));
+  }
+});
+
+test('both new judges are drawable and carry their portraits and personas into built-in and external rooms', async (t) => {
+  const dossier = { id: 'persona-case', plaintiffName: '小林', defendantName: '小陈' };
+  const fail = (status, code, message) => assert.fail(`${status} ${code}: ${message}`);
+  for (const id of ['gavel', 'chill']) {
+    const index = casts.COURT_CASTS.findIndex(cast => cast.id === id);
+    const random = t.mock.method(Math, 'random', () => (index + 0.5) / casts.COURT_CASTS.length);
+    const cast = casts.drawCourtCast();
+    random.mock.restore();
+    assert.equal(cast.id, id);
+    const input = { caseData: dossier, judgeCastId: cast.id, mode: 'multiplayer', role: 'plaintiff' };
+    const builtin = casts.platformCase({ ...input, judgeMode: 'builtin' }, true, fail);
+    assert.equal(builtin.builtinJudgeName, cast.judgeName);
+    assert.equal(builtin.caseData.agents.judge.persona, cast.style.judge);
+    assert.equal(builtin.caseData.agents.judge.avatar, cast.judgePortrait.asset);
+    const image = await readFile(new URL(`../public${cast.judgePortrait.asset}`, import.meta.url));
+    assert.equal(image.readUInt32BE(16), cast.judgePortrait.width);
+    assert.equal(image.readUInt32BE(20), cast.judgePortrait.height);
+    const external = casts.platformCase({ ...input, judgeMode: 'external', caseData: casts.applyCourtCast(dossier, id) }, false, fail);
+    assert.deepEqual(external.caseData.agents, builtin.caseData.agents);
   }
 });

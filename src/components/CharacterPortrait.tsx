@@ -15,28 +15,32 @@ export const EXPRESSION_LABELS: Record<CourtExpression, string> = {
 const ROLE_NAMES: Record<CourtRole, string> = { judge: '法官', plaintiff: '原告', defendant: '被告' };
 
 export function CharacterPortrait({ role, cast, expression, className = '', label }: CharacterPortraitProps) {
+  const judgePortrait = role === 'judge' ? cast.judgePortrait : undefined;
+  const asset = judgePortrait?.asset ?? cast.asset;
+  const atlas = judgePortrait ?? cast.atlas;
   const [failedAsset, setFailedAsset] = useState<string>();
   useEffect(() => {
     let active = true;
     const image = new Image();
-    image.onerror = () => { if (active) setFailedAsset(cast.asset); };
+    image.onerror = () => { if (active) setFailedAsset(asset); };
     image.onload = () => { if (active) setFailedAsset(undefined); };
-    image.src = cast.asset;
+    image.src = asset;
     return () => { active = false; image.onerror = null; image.onload = null; };
-  }, [cast.asset]);
+  }, [asset]);
   const name = label || (role === 'judge' ? cast.judgeName : ROLE_NAMES[role]);
-  const failed = failedAsset === cast.asset;
-  const frame = cast.atlas.frames[expression][role];
+  const failed = failedAsset === asset;
+  const frame = judgePortrait?.frames[expression] ?? cast.atlas.frames[expression][role];
   const extent = Math.max(frame.width, frame.height);
   // Fit this measured rectangular frame into a square slot without stretching it.
   // Background percentages refer to the difference between full atlas and frame size.
   const frameStyle = {
     width: `${frame.width / extent * 100}%`,
     height: `${frame.height / extent * 100}%`,
-    backgroundImage: `url("${cast.asset}")`,
-    backgroundSize: `${cast.atlas.width / frame.width * 100}% ${cast.atlas.height / frame.height * 100}%`,
-    backgroundPosition: `${frame.x / (cast.atlas.width - frame.width) * 100}% ${frame.y / (cast.atlas.height - frame.height) * 100}%`,
+    backgroundImage: `url("${asset}")`,
+    backgroundSize: `${atlas.width / frame.width * 100}% ${atlas.height / frame.height * 100}%`,
+    backgroundPosition: `${frame.x / (atlas.width - frame.width) * 100}% ${frame.y / (atlas.height - frame.height) * 100}%`,
     backgroundRepeat: 'no-repeat',
+    imageRendering: judgePortrait ? 'pixelated' as const : undefined,
   };
   return (
     <div

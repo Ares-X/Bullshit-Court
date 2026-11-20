@@ -90,6 +90,7 @@
 .court-lobby-status--running { color: #7be1d2; border-color: #4c8a83; background: #1d3433; }
 .court-lobby-status--waiting-verdict { color: #f6d85c; border-color: #a58543; background: #3a3024; }
 .court-lobby-status--waiting-jury { color: #ffb2a5; border-color: #a56066; background: #40252f; }
+.court-lobby-status--waiting-jurors { color: #f0d9a2; border-color: #9e8150; background: #3b2e21; }
 .court-lobby-parties { display: flex; gap: 9px; flex-wrap: wrap; color: #c7b5ce; font-size: 11px; line-height: 1.6; }
 .court-lobby-parties span:nth-child(2) { color: #ef695e; }
 .court-lobby-seats { list-style: none; padding: 0; margin: 14px 0 20px; }

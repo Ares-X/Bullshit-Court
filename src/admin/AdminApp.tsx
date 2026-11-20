@@ -3,7 +3,7 @@ import { adminClient, adminDevToken, type AdminDetail, type AdminGameCard, type 
 import './admin.css';
 
 const STATUS_LABELS: Record<string, string> = {
-  'waiting-agents': '等 Agent 到齐', running: '正在开庭', 'waiting-jury': '等待陪审', 'waiting-verdict': '等待宣判', completed: '已结案', unresolved: '未决',
+  'waiting-agents': '等 Agent 到齐', 'waiting-jurors': '等陪审员入席', running: '正在开庭', 'waiting-jury': '陪审投票中', 'waiting-verdict': '等待宣判', completed: '已结案', unresolved: '未决',
 };
 const ROLE_LABELS: Record<string, string> = { judge: '法官', plaintiff: '原告', defendant: '被告' };
 const time = (value: number) => new Date(value).toLocaleString('zh-CN', { hour12: false });

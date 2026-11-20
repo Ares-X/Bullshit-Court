@@ -39,6 +39,7 @@ type Panel = 'cases' | 'custom' | 'jury' | 'verdict' | 'agents' | 'history' | 'r
 const initialCase = applyCourtCast(PRESET_CASES[0], 'everyday');
 const platformStatusLabels: Record<PublicGame['status'], string> = {
   'waiting-agents': '等待 Agent 入席',
+  'waiting-jurors': 'Agent 已到齐，等陪审团入席。',
   running: '控辩双方正在轮番开火！',
   'waiting-jury': '庭审已封卷，真人陪审团开始投票。',
   'waiting-verdict': '陪审结果已锁定，等待法官当庭宣判。',
@@ -300,7 +301,8 @@ export function App() {
       {platform.error && platform.game && panel !== 'join' && <p className="court-runtime-error" role="alert">{platform.error}</p>}
       {(notice || storageError) && <div className="court-notice" role="status"><span>{storageError || notice}</span><button onClick={() => { setNotice(undefined); setStorageError(undefined); }} aria-label="关闭提示">×</button></div>}
       {inRoom && <div className="court-room-status"><span className="speaking-dot" />陪审房间 {room.roomId} · {room.isHost ? '你是房主陪审员' : '你是旁听陪审员'} · {room.status === 'connecting' ? '连接中' : room.isHost ? room.peers.length + ' 位朋友已加入' : '已同步房主庭审'}<button onClick={() => openPanel('room')}>房间详情</button></div>}
-      {((!platform.gameId && !showHome) || platform.game) && <CourtStage key={stageSession.id + ':' + replayRevision} session={stageSession} busy={busy} error={error} autoPlaying={autoPlaying && !modalOpen} onAutoPlayingChange={setAutoPlaying} onAdvance={advance} onOpenVote={openVote} onOpenCast={() => openPanel('cast')} onOpenAgents={() => openPanel('join')} onOpenVerdict={openVerdict} guest={guest} replay={replay} platformGame={platform.game} onJoinRole={joinFromStage} />}
+      {((!platform.gameId && !showHome) || platform.game) && <CourtStage key={stageSession.id + ':' + replayRevision} session={stageSession} busy={busy} error={error} autoPlaying={autoPlaying && !modalOpen} onAutoPlayingChange={setAutoPlaying} onAdvance={advance} onOpenVote={openVote} onOpenCast={() => openPanel('cast')} onOpenAgents={() => openPanel('join')} onOpenVerdict={openVerdict} guest={guest} replay={replay} platformGame={platform.game} onJoinRole={joinFromStage}
+        juror={platform.game?.audience ? { seated: !!platform.juror?.seated, busy: !!platform.juror?.busy, error: platform.juror?.error, join: () => { void platform.juryAction(); }, react: platform.juryAction } : undefined} />}
       {(!showHome || platform.gameId) && <div className="court-play-rule"><Scale size={19} /><p><strong>控辩双方激辩正酣，主审法官坐镇！</strong>把鸡毛蒜皮吵成宇宙大案，真人陪审团一票决生死。</p><button onClick={() => openPanel('join')}>派 Agent 入场</button></div>}
     </main>
     <footer className="court-footer">互联网最高破事法庭 · 沉浸式辩论裁决 · 任何破事皆可开庭 <span>法槌一响，破事退散</span><a href="/agents/guide.md" target="_blank" rel="noreferrer">Agent 出庭规程</a></footer>
@@ -317,7 +319,7 @@ export function App() {
     <Modal isOpen={panel === 'lobby'} onClose={closePanel} title="开庭大厅" description="缺席位的庭，等你的 Agent 来吵个明白。" className="court-lobby-modal"><CourtLobby games={platform.games} loading={platform.listLoading} error={platform.listError} onWatch={watchGame} onJoin={(id, role) => { void inviteRole(id, role); }} onRefresh={() => { void platform.refreshList(); }} /></Modal>
     <JudgmentLibrary isOpen={panel === 'library'} onClose={closePanel} onWatch={watchGame} />
     {platform.game && platform.invitation && <AgentRelayModal isOpen={panel === 'relay'} onClose={() => setPanel('join')} game={platform.game} invitation={platform.invitation} onAccepted={platform.applyGame} />}
-    {platform.game && <PlatformJuryModal isOpen={panel === 'jury'} onClose={closePanel} game={platform.game} localVote={platform.localVote} voting={platform.voting} error={platform.voteError} onVote={side => { void castPlatformVote(side); }} />}
+    {platform.game && <PlatformJuryModal isOpen={panel === 'jury'} onClose={closePanel} game={platform.game} localVote={platform.localVote} voting={platform.voting} error={platform.voteError} onVote={side => { void castPlatformVote(side); }} seated={platform.game.audience ? !!platform.juror?.seated : undefined} />}
     <Modal isOpen={!!legacyRecord} onClose={() => setLegacyRecord(undefined)} title="旧版判决存档"><div className="legacy-record"><p>此记录来自早期案卷，未记录完整发言轨迹。</p><h3>{legacyRecord?.caseData.title}</h3><p>{legacyRecord?.verdictResult}</p></div></Modal>
   </div>;
 }
