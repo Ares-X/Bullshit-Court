@@ -452,7 +452,7 @@ try {
       requests.push(facts);
       assert.equal(facts.juryVote, null);
       const evidenceIds = facts.evidence.map(item => item.id);
-      const speech = turn(`第 ${facts.transcript.length + 1} 轮公开台词。`, { speaker: facts.currentSpeaker, evidenceIds });
+      const speech = { text: `第 ${facts.transcript.length + 1} 轮公开台词。`, emotion: 'normal' };
       const branch = (side, invalid = false) => ({
         text: `${side}专用第十一轮。`, reason: invalid ? '' : '这一句说到了点上。',
         lastLine: `${side}说完了。`, evidenceId: evidenceIds[0],

@@ -88,19 +88,16 @@ export async function generatePartyTurn(apiKey: string, game: PublicGame, role: 
   const job = seal ? PARTY_SEAL_JOB : jobs[round];
   if (request.role !== role || round > 10 || !job) throw new Error('No scheduled party game turn');
   const cast = getCourtCast(game.session.caseData);
-  const properties = {
-    speaker: { type: 'string', enum: [role] },
+  const turnSchema = objectSchema({
     text: { type: 'string' },
     emotion: { type: 'string', enum: role === 'judge' ? ['gavel', 'normal'] : ['normal', 'confident', 'smug', 'shocked', 'angry', 'sweating'] },
-    responseTo: references,
-    evidenceIds: references,
-  };
+  });
   const evidence = game.session.evidences.map(item => item.id);
   const draft = objectSchema({
     text: line, reason: line, lastLine: line,
     ...(evidence.length ? { evidenceId: { type: 'string', enum: evidence } } : {}),
   });
-  const schema = seal ? objectSchema({ seal: line, plaintiff: draft, defendant: draft }) : objectSchema(properties);
+  const schema = seal ? objectSchema({ seal: line, plaintiff: draft, defendant: draft }) : turnSchema;
   const position = role === 'plaintiff' ? notes.demand : role === 'defendant' ? notes.defense : undefined;
   const output = await requestFreeCourtTurn(apiKey, [
     { role: 'system', content: [
@@ -114,17 +111,20 @@ export async function generatePartyTurn(apiKey: string, game: PublicGame, role: 
       '只用已有的经过、数值和证物，争议处说清是谁的说法。',
       seal ? [
         '交一份 JSON。seal 是封卷台词，说完请大家投票。plaintiff 和 defendant 各写一份对应那一方获胜的判词。',
-        'text 说这事怎么收场，reason 点出采了谁的哪句话，lastLine 接本案的梗。用平时说话的口气，比如「支架留着，下次拿废纸折。」输赢和票数由法庭报。',
+        'text 用一句家常话说这事怎么收场，reason 点出采了谁的哪句话，lastLine 用本案的物件收尾。输赢和票数由法庭报。',
         ...(evidence.length ? ['用 evidenceId 选一件理由里用到的证物。'] : []),
-      ].join('\n') : '只交 JSON，含 speaker、text、emotion、responseTo、evidenceIds。responseTo 填本轮回应过的编号和 requiredInterventionIds；evidenceIds 填用到的证物编号。没有就填 []。',
+      ].join('\n') : '只交 JSON，含 text、emotion。',
     ].join('\n') },
     { role: 'user', content: JSON.stringify({ ...JSON.parse(request.messages[1].content), ...(position ? { position } : {}) }) },
   ], schema, attempt);
-  if (!seal) return output;
-  const bundle = output as SealDraft;
   const interventions = game.session.interventions;
   const mustAddress = request.requiredInterventionIds;
   const supplemental = interventions.flatMap(item => item.evidence ? [item.evidence.id] : []);
+  if (!seal) {
+    const turn = output as { text?: unknown; emotion?: unknown };
+    return { speaker: role, text: turn.text, emotion: turn.emotion, responseTo: mustAddress, evidenceIds: supplemental };
+  }
+  const bundle = output as SealDraft;
   const speech = (text: string, responseTo: string[], evidenceIds: string[]) =>
     ({ speaker: 'judge', emotion: 'gavel', text, responseTo, evidenceIds });
   const branch = (winner: 'plaintiff' | 'defendant', entry: VerdictDraft) => {
