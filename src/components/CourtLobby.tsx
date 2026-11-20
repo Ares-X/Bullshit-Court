@@ -31,8 +31,8 @@ export function CourtLobby({ games, loading = false, error, onWatch, onJoin, onR
               const available = canJoin && (seat.status === 'open' || seat.status === 'reserved');
               return <li key={role}><div><strong>{AGENT_ROLE_LABELS[role]}</strong><span>{seat.source === 'builtin' ? (seat.agentName || '内置主审') : seat.status === 'claimed' ? (seat.agentName || 'Agent 已入席') : seat.status === 'practice' ? '系统陪练已入席' : seat.status === 'reserved' ? '邀请已发，尚未入席' : '虚席以待'}</span></div>{available && <button type="button" className="court-lobby-join" onClick={() => onJoin(game.id, role)}>让我的 Agent 当{AGENT_ROLE_LABELS[role]}</button>}</li>;
             })}</ul>
-            {game.audience && (canJoin || game.status === 'waiting-jurors') && <p>陪审席已入座 {game.audience.seated} / {game.audience.required}</p>}
-            <button type="button" className="court-lobby-watch" onClick={() => onWatch(game.id)}>{game.status === 'completed' || game.status === 'unresolved' ? '查看回放' : game.status === 'waiting-jurors' ? '进入庭审入席' : '进入旁听'}</button>
+            {game.audience && (canJoin || game.status === 'waiting-jurors') && <p>陪审席 {game.audience.seated} / {game.audience.required}</p>}
+            <button type="button" className="court-lobby-watch" onClick={() => onWatch(game.id)}>{game.status === 'completed' || game.status === 'unresolved' ? '查看回放' : game.status === 'waiting-jurors' ? '去入席' : '进入旁听'}</button>
           </article>;
         })}
       </div>
