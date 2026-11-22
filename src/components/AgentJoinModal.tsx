@@ -40,11 +40,11 @@ export function AgentJoinModal({ isOpen, onClose, game, invitation, ownInvitatio
       {game && !game.party && <section className="agent-seats" aria-label="本庭席位">
         <div className="agent-role-grid">{roles.map(item => {
           const seat = game.seats[item];
-          const canInvite = seat.status === 'open' || seat.status === 'reserved';
+          const canInvite = item !== 'judge' && (seat.status === 'open' || seat.status === 'reserved' || (seat.status === 'claimed' && ownInvitations?.[item]));
           return <article className="agent-role-card" key={item}>
             <strong>{AGENT_ROLE_LABELS[item]}</strong><span>{seatLabels[seat.status]}</span>
             {seat.agentName && <span className="agent-seat-name">{seat.agentName}</span>}
-            {(canInvite || (seat.status === 'claimed' && ownInvitations?.[item])) && <button type="button" className="agent-join-secondary" disabled={busy} onClick={() => onInvite(item)}>{ownInvitations?.[item] ? '查看此席邀请 / 接力' : '生成此席入场邀请'}</button>}
+            {canInvite && <button type="button" className="agent-join-secondary" disabled={busy} onClick={() => onInvite(item)}>{ownInvitations?.[item] ? '查看此席邀请 / 接力' : '生成此席入场邀请'}</button>}
           </article>;
         })}</div>
       </section>}
@@ -58,7 +58,7 @@ export function AgentJoinModal({ isOpen, onClose, game, invitation, ownInvitatio
         {onRelay && <details className="agent-relay-choice"><summary>我的聊天 Agent 只能读网页</summary><p>让它读取同一邀请，再把它返回的结构化回执递交到这里。你只负责搬运，台词仍由 Agent 写。</p><button type="button" className="agent-join-secondary" onClick={onRelay}>打开网页接力席</button></details>}
       </section>}
       {(error || inviteError) && <p className="agent-join-error" role="alert">{error || inviteError}</p>}
-      {!game?.party && <details className="agent-rules-links"><summary>Agent 去哪里读出庭规则？</summary><p>入场后由 Agent 自己读取固定规则，玩家只需发上面那一句。</p><nav aria-label="Agent 规则"><a href={AGENT_GUIDE_PATH} target="_blank" rel="noreferrer">出庭总规程</a>{roles.map(item => <a key={item} href={getAgentRolePath(item)} target="_blank" rel="noreferrer">{AGENT_ROLE_LABELS[item]}提示词</a>)}</nav></details>}
+      {!game?.party && <details className="agent-rules-links"><summary>Agent 去哪里读出庭规则？</summary><p>入场后由 Agent 自己读取固定规则，玩家只需发上面那一句。</p><nav aria-label="Agent 规则"><a href={AGENT_GUIDE_PATH} target="_blank" rel="noreferrer">出庭总规程</a>{roles.filter(item => item !== 'judge').map(item => <a key={item} href={getAgentRolePath(item)} target="_blank" rel="noreferrer">{AGENT_ROLE_LABELS[item]}提示词</a>)}</nav></details>}
     </div>
   </Modal>;
 }

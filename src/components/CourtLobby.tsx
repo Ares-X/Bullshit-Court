@@ -35,7 +35,7 @@ export function CourtLobby({ games, loading = false, error, onWatch, onJoin, onR
             <p className="court-lobby-parties"><span>{game.plaintiffName}</span><span aria-label="对阵">诉</span><span>{game.defendantName}</span></p>
             {!game.party && <ul className="court-lobby-seats">{roles.map(role => {
               const seat = game.seats[role];
-              const available = canJoinRole && (seat.status === 'open' || seat.status === 'reserved');
+              const available = role !== 'judge' && canJoinRole && (seat.status === 'open' || seat.status === 'reserved');
               return <li key={role}><div><strong>{AGENT_ROLE_LABELS[role]}</strong><span>{seat.source === 'builtin' ? (seat.agentName || '内置主审') : seat.status === 'claimed' ? (seat.agentName || 'Agent 已入席') : seat.status === 'practice' ? '系统陪练已入席' : seat.status === 'reserved' ? '邀请已发，尚未入席' : '虚席以待'}</span></div>{available && <button type="button" className="court-lobby-join" onClick={() => onJoin(game.id, role)}>让我的 Agent 当{AGENT_ROLE_LABELS[role]}</button>}</li>;
             })}</ul>}
             {game.audience && !game.party && (canJoinRole || game.status === 'waiting-jurors') && <p>陪审席 {game.audience.seated} / {game.audience.required}</p>}

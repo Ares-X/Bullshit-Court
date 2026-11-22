@@ -275,7 +275,7 @@ export const CourtStage: React.FC<CourtStageProps> = ({ session, busy, error, au
               <div className="court-actor__cue">{busy && !reviewing && nextRole === role ? <><LoaderCircle size={13} className="is-spinning" />正在斟酌</> : active ? <><span className="speaking-dot" />{ROLE_LABELS[role]}发言</> : role === 'judge' ? '主持审理' : party ? '当事人席' : '本人出庭'}</div>
               <CharacterPortrait role={role} cast={cast} expression={getCourtExpression(emotion, active && !typingDone)} label={profile.name} />
               <div className="court-actor__bench"><span>{ROLE_LABELS[role]}席</span><strong>{profile.name}</strong>{party ? (partySeat && <small>{partySeat}</small>) : seat && <small>{seat.source === 'practice' ? '系统陪练' : seat.source === 'builtin' ? '内置主审' : seat.status === 'claimed' ? seat.agentName || '玩家 Agent' : '等待玩家 Agent'}</small>}</div>
-              {!party && onJoinRole && (!serverDriven || seat?.status === 'open' || seat?.status === 'reserved') && <button className="court-seat-invite" onClick={() => onJoinRole(role)}>让我的 Agent 当{ROLE_LABELS[role]}</button>}
+              {!party && role !== 'judge' && onJoinRole && (!serverDriven || seat?.status === 'open' || seat?.status === 'reserved') && <button className="court-seat-invite" onClick={() => onJoinRole(role)}>让我的 Agent 当{ROLE_LABELS[role]}</button>}
             </div>;
           })}
         </div>

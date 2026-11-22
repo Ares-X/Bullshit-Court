@@ -195,8 +195,8 @@ try {
     const post = (endpoint, headers, body) => browser(`/api/games${id}/${endpoint}`, {
       method: 'POST', headers: { origin, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
     });
-    const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'judge' }, gameId: id.slice(1) } }));
-    const joined = await ok(await call(room, `${id}/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: '法官', clientActionId: 'join' } }));
+    const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'plaintiff' }, gameId: id.slice(1) } }));
+    const joined = await ok(await call(room, `${id}/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: '原告', clientActionId: 'join' } }));
     const bearer = { authorization: 'Bearer ' + joined.seatToken };
     const [visitor, other] = [await requestVisitor(), await requestVisitor()];
     const membership = async (headers = {}) => ok(await browser(`/api/games${id}/jury-seat`, { headers }));
@@ -209,7 +209,7 @@ try {
     await fails(await post('jury-seat', { ...visitor, ...bearer }, {}), 'ROLE_SCOPE');
     const first = await ok(await post('jury-seat', visitor, { visitorId: 'spoofed-identity' }));
     assert.equal(first.status, 'running');
-    assert.equal(first.session.turns.length, 0);
+    assert.equal(first.session.turns.length, 1);
     assert.deepEqual(first.audience, { seated: 1, required: 1, reactions: [] });
     assert.equal((await ok(await post('jury-seat', visitor, {}))).revision, first.revision);
     assert.deepEqual(await membership(visitor), { seated: true });
@@ -256,8 +256,8 @@ try {
     assert.equal(mcp.result.isError, false);
     const spoken = mcp.result.structuredContent;
     assert.equal((await ok(await polling)).expectedRevision, spoken.expectedRevision);
-    assert.equal(spoken.game.session.turns[0].text, '🧑'.repeat(180));
-    assert.equal(spoken.game.session.turns[0].shout, 'ORDER');
+    assert.equal(spoken.game.session.turns[1].text, '🧑'.repeat(180));
+    assert.equal(spoken.game.session.turns[1].shout, 'ORDER');
     const message = { kind: 'message', text: '🤍'.repeat(60), clientActionId: 'cheer' };
     assert.equal((await ok(await post('reactions', other, message))).audience.reactions.at(-1).text, message.text);
     now += 1200;
@@ -278,67 +278,80 @@ try {
     await fails(await post('reactions', visitor, { ...prop, clientActionId: 'retry-after-eviction' }), 'REACTION_RATE_LIMIT');
   });
 
+  const sealPractice = async (room, id) => {
+    const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'plaintiff' }, gameId: id.slice(1) } }));
+    const joined = await ok(await call(room, `${id}/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: '原告', clientActionId: 'join' } }));
+    await sit(room, id, 'juror');
+    const bearer = { authorization: 'Bearer ' + joined.seatToken };
+    for (let index = 0; index < 3; index++) {
+      const state = await ok(await call(room, `${id}/seat`, { headers: bearer }));
+      assert.equal(state.canSubmit, true);
+      await ok(await call(room, `${id}/seat/turns`, { method: 'POST', headers: bearer, body: { turnId: state.turnId, revision: state.expectedRevision, clientActionId: 'pt-' + index, payload: turn(`原告第${index + 1}次发言。`) } }));
+    }
+    return ok(await call(room, id));
+  };
+
   test('jury deadline alarm settles an unvoted case as unresolved', async () => {
     const { room } = makeRoom();
-    const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'judge', mode: 'practice', clientActionId: 'create-2' }, gameId: 'room999999' } }));
-    // Judge is external; plaintiff and defendant are practice seats and pump immediately.
-    const sealed = await ok(await call(room, '/room999999'));
-    assert.equal(sealed.status, 'waiting-agents');
-    await fails(await call(room, '/room999999/votes', { method: 'POST', body: { visitorId: 'x'.repeat(64), winner: 'plaintiff', clientActionId: 'v' } }), 'VOTE_CLOSED');
-    const joined = await ok(await call(room, `/room999999/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: '判官', clientActionId: 'join-j' } }));
-    await sit(room, '/room999999', 'juror');
-    // Ten rounds run without the judge seat: practice seats auto-play theirs; the judge seat is external
-    // and must submit its four turns, then wait for the jury.
-    const bearer = { authorization: 'Bearer ' + joined.seatToken };
-    for (let index = 0; index < 4; index++) {
-      const state = await ok(await call(room, '/room999999/seat', { headers: bearer }));
-      assert.equal(state.canSubmit, true);
-      await ok(await call(room, '/room999999/seat/turns', { method: 'POST', headers: bearer, body: { turnId: state.turnId, revision: state.expectedRevision, clientActionId: 'jt-' + index, payload: turn(`法官第${index + 1}次发言。`) } }));
-    }
-    const state = await ok(await call(room, '/room999999/seat', { headers: bearer }));
-    assert.equal(state.action, 'wait');
-    assert.equal(state.roleFinished, false);
-    assert.equal(state.game.session.turns.length, 10);
+    const id = '/room999999';
+    const sealed = await sealPractice(room, id);
+    assert.equal(sealed.status, 'waiting-jury');
+    assert.equal(sealed.session.turns.length, 10);
     // Nobody votes; the alarm fires after the 24h deadline and the case becomes unresolved.
     const now = Date.now();
     room.now = () => now + 25 * 60 * 60 * 1000;
     await room.alarm();
     const unresolved = await ok(await call(room, '/room999999'));
     assert.equal(unresolved.status, 'unresolved');
-    assert.equal((await ok(await call(room, '/room999999/seat', { headers: bearer }))).roleFinished, true);
   });
 
   test('a previously sealed room still publishes its stored matching conditional verdict after eviction', async () => {
     const { room, env, storage } = makeRoom();
     const id = '/legacyroom';
-    const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'judge' }, gameId: id.slice(1) } }));
+    const sealed = await sealPractice(room, id);
     const stored = storage.map.get('game');
     delete stored.postJury;
     delete stored.jurors;
     delete stored.actionRevision;
-    const legacy = new CourtRoom({ storage }, env);
-    const joined = await ok(await call(legacy, `${id}/ticket/${ticketSecret(created.invitation.ticket)}/claim`, { method: 'POST', body: { agentName: '旧房间法官', clientActionId: 'join-legacy' } }));
-    const headers = { authorization: 'Bearer ' + joined.seatToken };
-    for (let i = 0; i < 4; i++) {
-      const state = await ok(await call(legacy, `${id}/seat`, { headers }));
-      await ok(await call(legacy, `${id}/seat/turns`, { method: 'POST', headers, body: { turnId: state.turnId, revision: state.expectedRevision, clientActionId: 'legacy-turn-' + i, payload: turn('案卷发言。') } }));
-    }
-    const state = await ok(await call(legacy, `${id}/seat`, { headers }));
-    assert.equal(state.action, 'prepare_verdicts');
+    stored.seats.judge = { role: 'judge', source: 'external', status: 'claimed', agentName: '旧房间法官' };
     const verdict = winner => {
-      const evidenceIds = state.game.session.evidences.map(item => item.id);
-      return turn(`旧案的私存判词-${winner}`, { evidenceIds, ruling: { winner, result: '依票决裁定。', penalty: [], quote: '本庭遵从陪审意见。', reasons: ['根据原有的案卷。'], evidenceIds, consideredInterventionIds: [] } });
+      const evidenceIds = sealed.session.evidences.map(item => item.id);
+      return turn(`旧案的私存判词-${winner}`, { speaker: 'judge', evidenceIds, ruling: { winner, result: '依票决裁定。', penalty: [], quote: '本庭遵从陪审意见。', reasons: ['根据原有的案卷。'], evidenceIds, consideredInterventionIds: [] } });
     };
-    const sealed = await ok(await call(legacy, `${id}/seat/verdicts`, { method: 'POST', headers, body: { clientActionId: 'legacy-seal', plaintiff: verdict('plaintiff'), defendant: verdict('defendant') } }));
-    assert.equal(sealed.roleFinished, true);
-    assert.equal(sealed.game.verdict.flow, undefined);
-    assert.equal(sealed.game.session.ruling, undefined);
-    assert.ok(!JSON.stringify(sealed).includes('旧案的私存判词'));
+    stored.prepared = { plaintiff: verdict('plaintiff'), defendant: verdict('defendant'), source: 'external', preparedAt: stored.updatedAt };
     const restored = new CourtRoom({ storage }, env);
+    const waiting = await ok(await call(restored, id));
+    assert.equal(waiting.verdict.flow, undefined);
+    assert.equal(waiting.verdict.prepared, true);
+    assert.ok(!JSON.stringify(waiting).includes('旧案的私存判词'));
     const published = await ok(await call(restored, `${id}/votes`, { method: 'POST', body: { visitorId: 'legacy-visitor', clientActionId: 'legacy-ballot', winner: 'defendant' } }));
     assert.equal(published.status, 'completed');
     assert.equal(published.session.turns.at(-1).text, '旧案的私存判词-defendant');
     assert.ok(!JSON.stringify(published).includes('旧案的私存判词-plaintiff'));
+  });
+
+  test('unopened Worker rooms use a stable built-in judge and invalidate legacy judge invitations', async () => {
+    const { room, env, storage } = makeRoom({ OPENROUTER_API_KEY: 'test-key' });
+    const id = '/oldemptycourt';
+    const create = role => call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role, mode: 'multiplayer' }, gameId: id.slice(1) } });
+    await fails(await create('judge'), 'SEAT_UNAVAILABLE');
+    assert.equal(storage.map.has('game'), false);
+    await ok(await create('plaintiff'));
+    const old = storage.map.get('game');
+    const judgeToken = id.slice(1) + '.legacy-seat';
+    const ticket = id.slice(1) + '.legacy-invite';
+    old.seats.judge = { role: 'judge', source: 'external', status: 'reserved', ticket, tokenHash: sha256(judgeToken) };
+    const restored = new CourtRoom({ storage }, env);
+    const [first, second] = await Promise.all([call(restored, id).then(ok), call(restored, id).then(ok)]);
+    assert.deepEqual(first.seats.judge, second.seats.judge);
+    assert.equal(first.seats.judge.source, 'builtin');
+    assert.match(first.session.caseData.agents.judge.id, /^cast:(everyday|city|night|gavel|chill):judge$/);
+    assert.equal(storage.map.get('game').seats.judge.ticket, undefined);
+    await fails(await call(restored, id + '/invite', { method: 'POST', body: { role: 'judge' } }), 'SEAT_UNAVAILABLE');
+    await fails(await call(restored, id + '/ticket/legacy-invite/claim', { method: 'POST', body: { agentName: '外部法官', clientActionId: 'old-claim' } }), 'NOT_FOUND');
+    await fails(await call(restored, id + '/seat', { headers: { authorization: 'Bearer ' + judgeToken } }), 'AUTH');
+    const restarted = await ok(await call(new CourtRoom({ storage }, env), id));
+    assert.equal(restarted.session.caseData.agents.judge.id, first.session.caseData.agents.judge.id);
   });
 
   test('built-in judge waits for both external parties and writes round 11 after the actual tally', async t => {
@@ -347,15 +360,16 @@ try {
     let now = 100_000;
     room.now = () => now;
     const path = `${id}/seat/turns`;
-    const input = { caseData: PRESET_CASES[0], role: 'plaintiff', mode: 'multiplayer', judgeMode: 'builtin', judgeCastId: 'night' };
+    const input = { caseData: PRESET_CASES[0], role: 'plaintiff', mode: 'multiplayer' };
     const caps = await ok(await worker.fetch(new Request('https://court/api/capabilities'), env));
     assert.deepEqual(caps, { builtinJudge: true });
     assert.deepEqual(await ok(await worker.fetch(new Request('https://court/api/capabilities'), {})), { builtinJudge: false });
     const unavailable = makeRoom().room;
     await fails(await call(unavailable, '/create', { method: 'POST', body: { input, gameId: id.slice(1) } }), 'BUILTIN_JUDGE_UNAVAILABLE');
     const created = await ok(await call(room, '/create', { method: 'POST', body: { input, gameId: id.slice(1) } }));
-    assert.deepEqual(created.game.seats.judge, { role: 'judge', source: 'builtin', status: 'builtin', agentName: '骨班法官' });
-    assert.match(created.game.session.caseData.agents.judge.id, /^cast:night:judge$/);
+    const judge = created.game.session.caseData.agents.judge;
+    assert.match(judge.id, /^cast:(everyday|city|night|gavel|chill):judge$/);
+    assert.deepEqual(created.game.seats.judge, { role: 'judge', source: 'builtin', status: 'builtin', agentName: judge.name });
     await fails(await call(room, `${id}/invite`, { method: 'POST', body: { role: 'judge' } }), 'SEAT_UNAVAILABLE');
     const defendant = await ok(await call(room, `${id}/invite`, { method: 'POST', body: { role: 'defendant' } }));
     const headers = {};
@@ -679,7 +693,7 @@ try {
   });
 
   test('admin operations: close votes, revoke tickets, void, purge', async () => {
-    const { room, env } = makeRoom();
+    const { room, env } = makeRoom({ OPENROUTER_API_KEY: 'test-key' });
     const created = await ok(await call(room, '/create', { method: 'POST', body: { input: { caseData: PRESET_CASES[0], role: 'plaintiff', mode: 'multiplayer', clientActionId: 'create-4' }, gameId: 'room444444' } }));
     assert.equal(created.game.status, 'waiting-agents');
     // The admin channel requires the internal header.
