@@ -34,7 +34,7 @@ export interface PublicGame {
   currentRole: CourtRole | null;
   guidePath: string;
   party?: Pick<PartyRoomInput, 'visibility' | 'defendant'>;
-  audience?: { seated: number; required: number; reactions: JuryReaction[] };
+  audience?: { seated: number; required: number; publicJurors?: number; canJoin?: boolean; reactions: JuryReaction[] };
   jury: {
     plaintiffVotes: number;
     defendantVotes: number;
@@ -71,7 +71,7 @@ export interface GameCard {
   category?: string;
   seats: Record<CourtRole, PublicSeat>;
   jury: PublicGame['jury'];
-  audience?: Pick<NonNullable<PublicGame['audience']>, 'seated' | 'required'>;
+  audience?: Omit<NonNullable<PublicGame['audience']>, 'reactions'>;
   party?: PublicGame['party'];
   turnCount: number;
   ruling?: { winner: 'plaintiff' | 'defendant' | 'draw'; quote?: string; result: string };

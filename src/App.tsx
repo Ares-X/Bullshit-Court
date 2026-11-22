@@ -276,8 +276,9 @@ export function App() {
   const respond = async (stance: string, useAgent: boolean) => {
     if (await platform.respond(stance, useAgent) && useAgent) setPanel('join');
   };
-  const watchGame = (id: string) => {
+  const watchGame = (id: string, participate = false) => {
     cancel(); setPanel(null); setReplay(false); setAutoPlaying(true); platform.watch(id);
+    if (participate) void platform.joinJury(id);
   };
   const openLobby = () => { openPanel('lobby'); void platform.refreshList(); };
   const castPlatformVote = async (side: 'plaintiff' | 'defendant') => {
@@ -289,7 +290,8 @@ export function App() {
   const stageSession = game?.session || session;
   const seated = !!platform.juror?.seated && platform.juror.id === game?.id;
   const waitingForFriend = party?.defendant === 'friend' && game?.audience?.seated === 1 && game.status === 'waiting-jurors';
-  const shouldRespond = !!(waitingForFriend && platform.responseTicket && !seated);
+  const participant = !!platform.juror?.participant;
+  const shouldRespond = !!(waitingForFriend && platform.responseTicket && !participant);
   const ownPartyInvitation = platform.ownInvitations.plaintiff || platform.ownInvitations.defendant;
   const invitation = party ? ownPartyInvitation : platform.invitation;
   const partyLinks = platform.partyLinks;
@@ -300,7 +302,7 @@ export function App() {
   if (party && game) {
     if (waitingForFriend) statusText = '等朋友应诉。';
     else if (gameStatus === 'waiting-agents') statusText = game.seats.plaintiff.status === 'reserved' ? '等原告的辩护人到场。' : '等被告的辩护人到场。';
-    else if (gameStatus === 'waiting-jury') statusText = '庭审结束，等当事人投票。';
+    else if (gameStatus === 'waiting-jury') statusText = party.visibility === 'public' ? '庭审结束，陪审团开始投票。' : '庭审结束，等当事人投票。';
   }
 
   return <div className="court-app">
@@ -326,7 +328,7 @@ export function App() {
       {(notice || storageError) && <div className="court-notice" role="status"><span>{storageError || notice}</span><button onClick={() => { setNotice(undefined); setStorageError(undefined); }} aria-label="关闭提示">×</button></div>}
       {inRoom && <div className="court-room-status"><span className="speaking-dot" />陪审房间 {room.roomId} · {room.isHost ? '你是房主陪审员' : '你是旁听陪审员'} · {room.status === 'connecting' ? '连接中' : room.isHost ? room.peers.length + ' 位朋友已加入' : '已同步房主庭审'}<button onClick={() => openPanel('room')}>房间详情</button></div>}
       {((!platform.gameId && !showHome) || (game && !shouldRespond)) && <CourtStage key={stageSession.id + ':' + replayRevision} session={stageSession} busy={!game && busy} error={game ? undefined : error} autoPlaying={autoPlaying && !modalOpen} onAutoPlayingChange={setAutoPlaying} onAdvance={advance} onOpenVote={openVote} onOpenCast={() => openPanel('cast')} onOpenAgents={() => openLocalPanel('config')} onOpenVerdict={openVerdict} guest={!game && guest} replay={replay} platformGame={game} onJoinRole={game && !party ? role => { void inviteRole(game.id, role); } : undefined}
-        juror={game?.audience || party ? { seated, busy: !!platform.juror?.busy, error: platform.juror?.error, join: party ? undefined : () => { void platform.juryAction(); }, react: platform.juryAction } : undefined} />}
+        juror={game?.audience ? { seated, participant, busy: !!platform.juror?.busy, error: platform.juror?.error, join: party?.visibility === 'invite' ? undefined : () => { void platform.joinJury(game.id); }, react: platform.juryAction } : undefined} />}
     </main>
     {panel === 'file' && <PartyCaseModal preset={filingPreset} busy={platform.busy} error={platform.error} onClose={() => { if (!platform.busy) closePanel(); }} onSubmit={createPartyGame} />}
     {panel === 'share' && party && partyLinks && <PartyShareModal visibility={party.visibility} links={{ room: partyLinks.room, defense: defenseLink }} onClose={closePanel} />}
