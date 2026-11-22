@@ -6,7 +6,7 @@ import { courtRulingSchema } from './mcp';
 
 const FREE_JUDGES = [
   'nvidia/nemotron-3.5-super-vl:free',
-  'dots-studio/dots-3-note-preview:free',
+  'particle-ai/particle-1:free',
 ] as const satisfies readonly `${string}:free`[];
 
 const JOBS: Record<number, string> = {

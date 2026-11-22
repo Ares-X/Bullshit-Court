@@ -23,7 +23,7 @@ const DRAW_LINES: Record<string, string> = {
   everyday: '瓜子秤没偏，今天谁也不多拿一粒。',
   city: '两边信号一样强，本台暂停插播。',
   night: '这单平手结案，谁也别把工单退回来。',
-  gavel: '惊堂木落下，两边各一票，今日就此退堂。',
+  gavel: '惊堂木落下，今日平手，退堂。',
   chill: '一人一票，扯平了。现在谁去开罐头？',
 };
 const DAY = 24 * 60 * 60 * 1000;
@@ -52,7 +52,7 @@ interface InternalGame {
   session: CourtSession; seats: Record<CourtRole, Seat>; ownerHash: string; hidden?: boolean;
   votes: Record<string, JuryWinner>; deadlineAt?: number; outcome: 'pending' | JuryWinner | 'draw' | 'unresolved'; prepared?: Prepared;
   postJury?: true; publishedAt?: number; builtinRetry?: BuiltinRetry;
-  party?: Party; jurors?: string[]; reactions?: JuryReaction[];
+  party?: Party; jurors?: string[]; publicJurors?: string[]; reactions?: JuryReaction[];
   actions: Record<string, { fingerprint: string; result: unknown }>;
 }
 interface ReactionHistory { lastAt: number; receipts: { actionId: string; fingerprint: string }[] }
@@ -109,6 +109,14 @@ export class CourtRoom {
     if (game.party) return game.party.defendant === 'friend' ? 2 : 1;
     return game.mode === 'practice' ? 1 : 3;
   }
+  private ballotCount(game: InternalGame) { return this.juryMinimum(game) + (game.publicJurors?.length ?? 0); }
+  private canJoinPublicJury(game: InternalGame) {
+    return game.party?.visibility === 'public' && game.outcome === 'pending' &&
+      (!game.deadlineAt || game.deadlineAt > this.now());
+  }
+  private hasJurySeat(game: InternalGame, visitorId: string) {
+    return !!(game.jurors?.includes(visitorId) || game.publicJurors?.includes(visitorId));
+  }
   private canRun(game: InternalGame) { return this.agentsReady(game) && (!game.jurors || game.jurors.length >= this.juryMinimum(game)); }
   private actionRevision(game: InternalGame) { return game.actionRevision ?? game.revision; }
   private public(game: InternalGame): PublicGame {
@@ -125,8 +133,10 @@ export class CourtRoom {
       currentRole: current?.role ?? null,
       currentTurnId: current ? `${game.session.id}-turn-${game.session.turns.length + 1}` : null,
       guidePath: '/agents/guide.md',
-      jury: { plaintiffVotes: plaintiff, defendantVotes: defendant, total, minimumVotes: this.juryMinimum(game), ...(game.deadlineAt ? {deadlineAt: game.deadlineAt} : {}), outcome: game.outcome },
-      ...(game.jurors && { audience: { seated: game.jurors.length, required: this.juryMinimum(game), reactions: game.reactions ?? [] } }),
+      jury: { plaintiffVotes: plaintiff, defendantVotes: defendant, total, minimumVotes: this.ballotCount(game), ...(game.deadlineAt ? {deadlineAt: game.deadlineAt} : {}), outcome: game.outcome },
+      ...(game.jurors && { audience: { seated: game.jurors.length, required: this.juryMinimum(game), reactions: game.reactions ?? [],
+        ...(game.party?.visibility === 'public' && { publicJurors: game.publicJurors?.length ?? 0, canJoin: this.canJoinPublicJury(game) }),
+      } }),
       ...(game.party && { party: { visibility: game.party.visibility, defendant: game.party.defendant } }),
       verdict: game.postJury ? { flow: 'post-jury', prepared: false, ...(game.publishedAt !== undefined ? {publishedAt: game.publishedAt, source: game.seats.judge.source} : {}) }
         : { ...(game.party && { flow: 'prepared' as const }), prepared: !!game.prepared, ...(game.prepared ? {preparedAt: game.prepared.preparedAt, source: game.prepared.source, ...(game.prepared.publishedAt ? {publishedAt: game.prepared.publishedAt} : {})} : {}) },
@@ -192,21 +202,22 @@ export class CourtRoom {
   private settle(game: InternalGame) {
     if (game.session.pendingTurns.length || game.session.status === 'completed' || game.outcome === 'unresolved') return;
     const { plaintiff, defendant, total } = juryTotals(game.votes);
-    const enough = total >= this.juryMinimum(game);
+    const expired = game.deadlineAt !== undefined && this.now() >= game.deadlineAt;
+    const enough = total >= this.ballotCount(game) || (expired && game.party?.visibility === 'public' && total > 0);
     let next: InternalGame['outcome'] = game.outcome;
     if (next === 'pending' && enough && plaintiff !== defendant) next = plaintiff > defendant ? 'plaintiff' : 'defendant';
     if (next === 'pending' && enough && game.party && game.prepared && plaintiff === defendant) next = 'draw';
-    if (next === 'pending' && game.deadlineAt && this.now() >= game.deadlineAt) next = 'unresolved';
+    if (next === 'pending' && expired) next = 'unresolved';
     if (next !== game.outcome) { game.outcome = next; this.change(game); }
     if (next === 'draw') {
       const evidenceIds = game.session.evidences.map(item => item.id);
       const consideredInterventionIds = game.session.interventions.map(item => item.id);
       const quote = DRAW_LINES[getCourtCast(game.session.caseData).id];
-      const result = '两边各得一票，本庭判平。';
+      const result = `两边各 ${plaintiff} 票，本庭判平。`;
       game.session = applyExternalCourtRuling(castJuryDraw(game.session), {
         speaker: 'judge', text: `陪审报票：原告 ${plaintiff} 票，被告 ${defendant} 票。${quote}`,
         responseTo: consideredInterventionIds, evidenceIds,
-        ruling: { winner: 'draw', result, quote, penalty: [], reasons: ['双方各有一票，陪审席没有多数。'], evidenceIds, consideredInterventionIds },
+        ruling: { winner: 'draw', result, quote, penalty: [], reasons: ['两边票数一样。'], evidenceIds, consideredInterventionIds },
       });
       if (game.prepared) game.prepared.publishedAt = this.now();
       this.change(game);
@@ -268,7 +279,7 @@ export class CourtRoom {
     if (!this.env.DB || game.party?.visibility === 'invite') return;
     // The card only changes on transitions, not on every turn, keeping D1 writes bounded.
     const seatsSig = ROLES.map(r => `${r}:${game.seats[r].status}`).join(',');
-    const key = [game.mode, game.hidden ? 1 : 0, game.session.status, game.outcome, seatsSig, game.jurors?.length, game.prepared ? (game.prepared.publishedAt ? 2 : 1) : 0].join('|');
+    const key = [game.mode, game.hidden ? 1 : 0, game.session.status, game.outcome, seatsSig, game.jurors?.length, game.publicJurors?.length, game.prepared ? (game.prepared.publishedAt ? 2 : 1) : 0].join('|');
     if (this.projectedKey === key) return;
     const card = toGameCard(this.public(game));
     try {
@@ -479,8 +490,16 @@ export class CourtRoom {
   private async seatJury(visitorId: string): Promise<PublicGame> {
     const stored = await this.require();
     if (!stored.jurors) return fail(409, 'JURY_UNAVAILABLE', '本案无需领取陪审席。');
-    if (stored.jurors.includes(visitorId)) return this.public(stored);
-    if (stored.party) return fail(403, 'JURY_SEAT_REQUIRED', '陪审席留给开庭的玩家，旁听请坐台下。');
+    if (this.hasJurySeat(stored, visitorId)) return this.public(stored);
+    if (stored.party) {
+      if (stored.party.visibility === 'invite') return fail(403, 'JURY_SEAT_REQUIRED', '这场由当事人投票。');
+      if (!this.canJoinPublicJury(stored)) return fail(409, 'JURY_SEATING_CLOSED', '这场已经收票了。');
+      const game = copy(stored);
+      game.publicJurors = [...(stored.publicJurors ?? []), visitorId];
+      this.change(game, true);
+      await this.save(game);
+      return this.public(game);
+    }
     if (!stored.session.pendingTurns.length || stored.outcome !== 'pending') return fail(409, 'JURY_SEATING_CLOSED', '已经封卷，入席得等下一场。');
     const game = copy(stored);
     game.jurors = [...stored.jurors, visitorId];
@@ -511,6 +530,7 @@ export class CourtRoom {
     if (!stored.session.pendingTurns.length || stored.outcome !== 'pending') return fail(409, 'JURY_SEATING_CLOSED', '这间法庭已经散场。');
     const game = copy(stored);
     game.jurors!.push(visitorId);
+    if (game.publicJurors?.includes(visitorId)) game.publicJurors = game.publicJurors.filter(id => id !== visitorId);
     if (useAgent) {
       game.seats.defendant = { role: 'defendant', source: 'external', status: 'reserved', ticket: input.ticket };
     } else {
@@ -535,7 +555,7 @@ export class CourtRoom {
     const key = `reactions:${visitorId}`;
     const history = await this.ctx.storage.get<ReactionHistory>(key);
     const stored = await this.require();
-    if (!stored.jurors?.includes(visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '先坐上陪审席。');
+    if (!this.hasJurySeat(stored, visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '先坐上陪审席。');
     const receipt = history?.receipts.find(item => item.actionId === actionId);
     if (receipt) {
       if (receipt.fingerprint !== fingerprint) fail(409, 'ACTION_CONFLICT', '同一操作编号不能提交不同内容。');
@@ -564,7 +584,7 @@ export class CourtRoom {
     if (game.votes[visitorId]) fail(409, 'ALREADY_VOTED', '这个浏览器已在本案投过票。');
     if (game.session.status !== 'awaiting-ruling' || game.outcome !== 'pending' || (game.deadlineAt && this.now() >= game.deadlineAt)) return fail(409, 'VOTE_CLOSED', '本案当前不接受陪审票。');
     if (game.party && !game.prepared) return fail(409, 'VOTE_CLOSED', '等法官把卷宗封好，再投票。');
-    if (game.jurors && !game.jurors.includes(visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '这一轮由已入席的陪审员投票。');
+    if (game.jurors && !this.hasJurySeat(game, visitorId)) return fail(403, 'JURY_SEAT_REQUIRED', '先坐上陪审席。');
     game.votes[visitorId] = input.winner; this.change(game); this.settle(game);
     game.actions[action.key] = { fingerprint: action.fingerprint, result: { voted: true } }; await this.save(game); return this.public(game);
   }
@@ -620,9 +640,10 @@ export class CourtRoom {
       if (browserGame && path === `/${gameId}` && method === 'GET') return json(this.public(browserGame));
       if (gameId && path === `/${gameId}/jury-seat` && method === 'GET') {
         const visitorId = request.headers.get('x-court-visitor-id');
-        const seated = Boolean(visitorId && browserGame?.jurors?.includes(visitorId));
+        const seated = Boolean(visitorId && browserGame && this.hasJurySeat(browserGame, visitorId));
         const vote = browserGame?.party && seated && visitorId ? browserGame.votes[visitorId] : undefined;
-        return json({ seated, ...(vote && { vote }) });
+        const participant = Boolean(visitorId && browserGame?.party && browserGame.jurors?.includes(visitorId));
+        return json({ seated, ...(participant && { participant }), ...(vote && { vote }) });
       }
       if (method === 'POST' && browserRoute && BROWSER_ROOM_MUTATIONS.has(browserRoute)) {
         const body = await readJson(request);

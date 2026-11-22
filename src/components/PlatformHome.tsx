@@ -13,7 +13,7 @@ export interface PlatformHomeProps {
   error?: string;
   onRefresh: () => void;
   onCreate: (caseData?: CaseData) => void;
-  onWatch: (gameId: string) => void;
+  onWatch: (gameId: string, participate?: boolean) => void;
   onJoin: (gameId: string, role: CourtRole) => void;
   onLibrary: () => void;
 }

@@ -535,7 +535,7 @@ try {
     assert.equal(completed.session.ruling.winner, 'plaintiff');
     assert.match(completed.session.turns.at(-1).text, /原告 1 票，被告 0 票。原告胜。原告专用第十一轮/);
     assert.doesNotMatch(JSON.stringify(completed), /被告专用第十一轮|本庭支持被告/);
-    assert.deepEqual(await ok(await browser(id + '/jury-seat', { headers: { ...host, ...access } })), { seated: true, vote: 'plaintiff' });
+    assert.deepEqual(await ok(await browser(id + '/jury-seat', { headers: { ...host, ...access } })), { seated: true, participant: true, vote: 'plaintiff' });
     assert.equal(await storage.getAlarm(), null);
     await room.alarm();
     assert.equal(requests.length, 11, 'ten rounds and one seal retry, with no model request after voting');
@@ -561,7 +561,6 @@ try {
     assert.equal(response.status, 'running');
     assert.equal(response.audience.seated, 2);
     assert.equal(response.seats.defendant.source, 'builtin');
-    await fails(await call(room, id + '/jury-seat', { method: 'POST', body: { visitorId: 'spectator' } }), 'JURY_SEAT_REQUIRED');
     const requests = mockPartyModel(t);
     for (let i = 0; i < 10; i++) await room.alarm();
     assert.deepEqual(requests.filter(facts => facts.currentSpeaker === 'defendant').map(facts => facts.position), Array(3).fill(`我是${friend}。`));
@@ -580,6 +579,60 @@ try {
     assert.equal(requests.length, 10);
     const card = JSON.parse(env.DB.writes.filter(write => write.sql.includes('INSERT INTO games')).at(-1).bindings[8]);
     assert.equal(card.ruling.winner, 'draw');
+  });
+
+  test('public spectators opt into jury without filling the defendant seat and can decide the vote', async t => {
+    const { room, storage } = makeRoom({ OPENROUTER_API_KEY: 'test-key' });
+    const id = '/publicjury';
+    const created = await ok(await call(room, '/create', { method: 'POST', body: { gameId: id.slice(1), visitorId: 'host', input: partyCase({ defendant: 'friend' }) } }));
+    const membership = async visitorId => ok(await call(room, id + '/jury-seat', { headers: { 'x-court-visitor-id': visitorId } }));
+    const post = (route, body) => call(room, id + route, { method: 'POST', body });
+    const reading = await ok(await call(room, id));
+    assert.equal(reading.audience.canJoin, true);
+    assert.deepEqual(await membership('viewer'), { seated: false });
+    const seated = await sit(room, id, 'friend');
+    assert.equal(seated.status, 'waiting-jurors');
+    assert.equal(await storage.getAlarm(), null);
+    assert.equal(seated.audience.seated, 1);
+    assert.equal(seated.audience.publicJurors, 1);
+    assert.equal((await sit(room, id, 'friend')).revision, seated.revision);
+    assert.deepEqual(await membership('friend'), { seated: true });
+    const answered = await ok(await post('/respond', { visitorId: 'friend', ticket: created.defenseInvitation.ticket, stance: '盘子已经洗了。' }));
+    assert.equal(answered.audience.seated, 2);
+    assert.equal(answered.audience.publicJurors, 0);
+    assert.deepEqual(await membership('friend'), { seated: true, participant: true });
+    const requests = mockPartyModel(t);
+    for (let i = 0; i < 10; i++) await room.alarm();
+    const juror = await sit(room, id, 'juror');
+    assert.equal(juror.status, 'waiting-jury');
+    assert.equal(juror.jury.minimumVotes, 3);
+    const vote = (visitorId, winner) => post('/votes', { visitorId, winner, clientActionId: 'vote-' + visitorId });
+    await fails(await vote('viewer', 'plaintiff'), 'JURY_SEAT_REQUIRED');
+    await ok(await vote('host', 'plaintiff'));
+    assert.equal((await ok(await vote('friend', 'defendant'))).status, 'waiting-jury');
+    const completed = await ok(await vote('juror', 'defendant'));
+    assert.equal(completed.session.ruling.winner, 'defendant');
+    assert.equal(completed.audience.canJoin, false);
+    assert.match(completed.session.turns.at(-1).text, /原告 1 票，被告 2 票。被告胜/);
+    assert.equal(requests.length, 10);
+    await fails(await post('/jury-seat', { visitorId: 'viewer' }), 'JURY_SEATING_CLOSED');
+  });
+
+  test('public voting closes at its deadline with the ballots already cast', async t => {
+    const { room } = makeRoom({ OPENROUTER_API_KEY: 'test-key' });
+    const id = '/publicdeadline';
+    await ok(await call(room, '/create', { method: 'POST', body: { gameId: id.slice(1), visitorId: 'host', input: partyCase() } }));
+    await sit(room, id, 'juror');
+    mockPartyModel(t);
+    for (let i = 0; i < 10; i++) await room.alarm();
+    const waiting = await ok(await call(room, id + '/votes', { method: 'POST', body: { visitorId: 'juror', winner: 'plaintiff', clientActionId: 'deadline-vote' } }));
+    assert.equal(waiting.status, 'waiting-jury');
+    room.now = () => waiting.jury.deadlineAt;
+    await room.alarm();
+    const finished = await ok(await call(room, id));
+    assert.equal(finished.status, 'completed');
+    assert.equal(finished.session.ruling.winner, 'plaintiff');
+    assert.equal(finished.jury.total, 1);
   });
 
   test('duo activates the friend Agent ticket only after the browser accepts the invite', async () => {

@@ -19,7 +19,10 @@ export function toGameCard(game: PublicGame): GameCard {
     defendantName: game.session.caseData.defendantName,
     category: game.session.caseData.category,
     seats, jury: game.jury, turnCount: game.session.turns.length,
-    ...(game.audience ? { audience: { seated: game.audience.seated, required: game.audience.required } } : {}),
+    ...(game.audience ? { audience: {
+      seated: game.audience.seated, required: game.audience.required,
+      ...(game.audience.publicJurors !== undefined ? { publicJurors: game.audience.publicJurors, canJoin: game.audience.canJoin } : {}),
+    } } : {}),
     ...(game.party ? { party: game.party } : {}),
     ...(game.session.ruling ? { ruling: { winner: game.session.ruling.winner, ...(game.session.ruling.quote ? { quote: game.session.ruling.quote } : {}), result: game.session.ruling.result } } : {}),
   };

@@ -72,7 +72,7 @@ export const platformClient = {
     request<GameInvitation>(apiGamePath(id) + '/invitations', { method: 'POST', headers: roomHeaders(id), body: JSON.stringify({ role, ...(ownerToken ? { ownerToken } : {}) }) }, signal),
   visitor: (signal?: AbortSignal) => request<{ csrfToken: string }>('/api/visitor', {}, signal),
   jurySeat: (id: string, signal?: AbortSignal) =>
-    request<{ seated: boolean; vote?: JuryWinner }>(apiGamePath(id) + '/jury-seat', { headers: roomHeaders(id) }, signal),
+    request<{ seated: boolean; participant?: boolean; vote?: JuryWinner }>(apiGamePath(id) + '/jury-seat', { headers: roomHeaders(id) }, signal),
   joinJury: (id: string, csrfToken: string, signal?: AbortSignal) =>
     request<PublicGame>(apiGamePath(id) + '/jury-seat',
       { method: 'POST', headers: roomHeaders(id, csrfToken), body: '{}' }, signal),
