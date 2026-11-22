@@ -270,6 +270,7 @@ export function App() {
     }
   };
   const inviteRole = async (id: string, role: CourtRole) => {
+    if (role === 'judge') return;
     setPanel('join');
     await platform.invite(id, role);
   };
@@ -293,7 +294,7 @@ export function App() {
   const participant = !!platform.juror?.participant;
   const shouldRespond = !!(waitingForFriend && platform.responseTicket && !participant);
   const ownPartyInvitation = platform.ownInvitations.plaintiff || platform.ownInvitations.defendant;
-  const invitation = party ? ownPartyInvitation : platform.invitation;
+  const invitation = party ? ownPartyInvitation : platform.invitation?.role === 'judge' ? undefined : platform.invitation;
   const partyLinks = platform.partyLinks;
   const defenseLink = waitingForFriend ? partyLinks?.defense : undefined;
   const gameTitle = party ? (party.defendant === 'friend' ? '双人庭审' : '单人庭审') : game?.mode === 'practice' ? '我的 Agent + 系统陪练' : '公开庭审';

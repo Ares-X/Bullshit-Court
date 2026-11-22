@@ -1,6 +1,6 @@
 import { applyExternalCourtRuling, applyExternalCourtTurn, castJuryDraw, castJuryVote, CourtRuntimeError, createCourtSession, rehearsalTurn, validateCourtSession } from '../../src/utils/courtRuntime';
 import { toGameCard, gameCardSearchBlob } from '../../src/utils/gameCard';
-import { juryTotals, nextBuiltinRetry, platformCase, platformTurn, type BuiltinRetry } from '../../src/utils/platformGame';
+import { juryTotals, nextBuiltinRetry, platformTurn, type BuiltinRetry } from '../../src/utils/platformGame';
 import type { CourtRole, CourtSession } from '../../src/types';
 import { applyCourtCast, drawCourtCast, getCourtCast } from '../../src/data/courtCasts';
 import type { AgentState, CreateGameInput, CreateGameResult, GameInvitation, InvitationContext, JuryProp, JuryReaction, JuryReactionInput, JuryWinner, PrepareVerdictsInput, PublicGame, PublicSeat } from '../../src/types/platform';
@@ -34,7 +34,7 @@ function text(value: unknown, label: string, max = 160): string {
   if (typeof value !== 'string' || !value.trim() || value.length > max) return fail(400, 'INVALID_INPUT', `${label}无效。`);
   return value.trim();
 }
-function role(value: unknown): CourtRole { return ROLES.includes(value as CourtRole) ? value as CourtRole : fail(400, 'INVALID_ROLE', '只有法官、原告、被告三个 Agent 席位。'); }
+function role(value: unknown): CourtRole { return ROLES.includes(value as CourtRole) ? value as CourtRole : fail(400, 'INVALID_ROLE', '请选出庭席位。'); }
 
 interface Seat extends PublicSeat { tokenHash?: string; ticket?: string; claim?: { actionId: string; fingerprint: string; seatToken: string } }
 interface Prepared { plaintiff: unknown; defendant: unknown; preparedAt: number; source: PublicSeat['source']; publishedAt?: number }
@@ -70,6 +70,7 @@ const MAX_STREAMS = 64;
  */
 export class CourtRoom {
   private game?: InternalGame;
+  private loading?: Promise<InternalGame | undefined>;
   private subscriptions = new Set<Subscription>();
   private waiters = new Set<Waiter>();
   private projectedKey?: string;
@@ -79,8 +80,26 @@ export class CourtRoom {
 
   private async load(): Promise<InternalGame | undefined> {
     if (this.game) return this.game;
+    const loading = this.loading ??= this.restore();
+    try { return await loading; }
+    finally { if (this.loading === loading) this.loading = undefined; }
+  }
+  private async restore(): Promise<InternalGame | undefined> {
     const stored = await this.ctx.storage.get<InternalGame>('game');
-    if (!this.game && stored) { stored.session = validateCourtSession(stored.session); this.game = stored; }
+    if (!stored) return;
+    stored.session = validateCourtSession(stored.session);
+    if (stored.outcome === 'pending' && !stored.session.turns.length && stored.seats.judge.source === 'external' && this.env.OPENROUTER_API_KEY?.trim()) {
+      const cast = drawCourtCast();
+      const caseData = stored.session.caseData;
+      const agents = applyCourtCast(caseData, cast.id).agents!;
+      stored.session.caseData = { ...caseData, agents: { ...agents, ...caseData.agents, judge: agents.judge } };
+      stored.seats.judge = { role: 'judge', source: 'builtin', status: 'builtin', agentName: cast.judgeName };
+      stored.postJury = true;
+      this.change(stored);
+      await this.save(stored);
+    } else {
+      this.game = stored;
+    }
     return this.game;
   }
   private async require(): Promise<InternalGame> { return await this.load() || fail(404, 'NOT_FOUND', '找不到这间法庭。'); }
@@ -101,7 +120,11 @@ export class CourtRoom {
   private auth(game: InternalGame, rawToken: string): CourtRole {
     if (typeof rawToken !== 'string' || rawToken.length > 200) return fail(401, 'AUTH', '需要有效的席位令牌。');
     const digest = hash(rawToken);
-    for (const r of ROLES) if (game.seats[r].tokenHash === digest) return r;
+    for (const r of ROLES) {
+      if (game.seats[r].tokenHash !== digest) continue;
+      if (r === 'judge' && !game.session.turns.length) return fail(409, 'SEAT_UNAVAILABLE', '本庭由内置法官主持。');
+      return r;
+    }
     return fail(401, 'AUTH', '席位令牌无效。');
   }
   private agentsReady(game: InternalGame) { return ROLES.every(r => game.seats[r].source !== 'external' || game.seats[r].status === 'claimed'); }
@@ -144,7 +167,12 @@ export class CourtRoom {
   }
   private seatTicket(game: InternalGame, secret: string): { seat: Seat; role: CourtRole } {
     const full = `${game.id}.${secret}`;
-    for (const r of ROLES) if (game.seats[r].ticket === full) return { seat: game.seats[r], role: r };
+    for (const r of ROLES) {
+      const seat = game.seats[r];
+      if (seat.ticket !== full) continue;
+      if (r === 'judge' && (!seat.claim || !game.session.turns.length)) return fail(409, 'SEAT_UNAVAILABLE', '本庭由内置法官主持。');
+      return { seat, role: r };
+    }
     return fail(404, 'NOT_FOUND', '邀请不存在。');
   }
   /** Commit the mutated copy, persist it, notify streams and project the D1 card. */
@@ -362,8 +390,11 @@ export class CourtRoom {
     if (this.game || prior) {
       if (!prior || prior.fingerprint !== fingerprint) return fail(409, 'ACTION_CONFLICT', '该创建编号已被其他内容使用。');
       const game = await this.require();
-      return { ...copy(prior.result), game: this.public(game), ...(game.party?.visibility === 'invite' && { roomKey: roomAccessKey(prior.result.ownerToken) }) };
+      const receipt = copy(prior.result);
+      if (receipt.invitation?.role === 'judge') delete receipt.invitation;
+      return { ...receipt, game: this.public(game), ...(game.party?.visibility === 'invite' && { roomKey: roomAccessKey(prior.result.ownerToken) }) };
     }
+    if (r === 'judge') return fail(409, 'SEAT_UNAVAILABLE', '本庭由内置法官主持。');
     if (input.mode !== undefined && input.mode !== 'practice' && input.mode !== 'multiplayer') return fail(400, 'INVALID_MODE', '未知游戏模式。');
     if (input.party !== undefined) {
       const party = input.party;
@@ -376,13 +407,15 @@ export class CourtRoom {
     }
     const mode = input.mode || 'practice';
     // Replay the empty session through the public validator to strip scripts, credentials and unknown fields.
-    const { caseData, builtinJudgeName } = platformCase(input, Boolean(this.env.OPENROUTER_API_KEY?.trim()), fail);
+    if (mode === 'multiplayer' && !this.env.OPENROUTER_API_KEY?.trim()) return fail(503, 'BUILTIN_JUDGE_UNAVAILABLE', '法官暂时没到，稍后再来开庭。');
+    const cast = mode === 'multiplayer' ? drawCourtCast() : undefined;
+    const caseData = cast ? applyCourtCast(input.caseData, cast.id) : input.caseData;
     const session = validateCourtSession(createCourtSession(caseData, 'external'));
     const ownerToken = scopedToken(gameId); const time = this.now();
     const game: InternalGame = { id: gameId, mode, revision: 1, createdAt: time, updatedAt: time, session,
       seats: Object.fromEntries(ROLES.map(x => [x, { role: x, source: mode === 'multiplayer' || x === r ? 'external' : 'practice', status: mode === 'multiplayer' || x === r ? 'open' : 'practice' }])) as Record<CourtRole, Seat>,
       ownerHash: hash(ownerToken), votes: {}, outcome: 'pending', actions: {}, postJury: true, jurors: [] };
-    if (builtinJudgeName) game.seats.judge = { role: 'judge', source: 'builtin', status: 'builtin', agentName: builtinJudgeName };
+    if (cast) game.seats.judge = { role: 'judge', source: 'builtin', status: 'builtin', agentName: cast.judgeName };
     const invitation = this.invitation(game, r);
     const result: CreateGameResult = { game: this.public(game), ownerToken, invitation };
     await this.save(game, { creation: { fingerprint, result } });
@@ -426,7 +459,9 @@ export class CourtRoom {
     const stored = await this.require();
     if (stored.id !== id) return fail(404, 'NOT_FOUND', '找不到这间法庭。');
     if (stored.party) return fail(403, 'INVITATION_REQUIRED', '请用开庭时发出的邀请。');
-    const game = copy(stored); const r = role(input.role);
+    const r = role(input.role);
+    if (r === 'judge') return fail(409, 'SEAT_UNAVAILABLE', '本庭由内置法官主持。');
+    const game = copy(stored);
     if (game.mode !== 'multiplayer' && (!input.ownerToken || hash(input.ownerToken) !== game.ownerHash)) return fail(403, 'OWNER_REQUIRED', '只有创建者可以取回排练入场邀请。');
     const invitation = this.invitation(game, r); await this.save(game); return invitation;
   }
